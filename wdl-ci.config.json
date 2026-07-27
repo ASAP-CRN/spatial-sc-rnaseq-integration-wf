@@ -1,0 +1,199 @@
+{
+  "workflows": {
+    "workflows/main.wdl": {
+      "key": "workflows/main.wdl",
+      "name": "",
+      "description": "",
+      "tasks": {}
+    },
+    "workflows/structs.wdl": {
+      "key": "workflows/structs.wdl",
+      "name": "",
+      "description": "",
+      "tasks": {}
+    },
+    "workflows/integration/integration.wdl": {
+      "key": "workflows/integration/integration.wdl",
+      "name": "",
+      "description": "",
+      "tasks": {
+        "integrate_sample": {
+          "key": "integrate_sample",
+          "digest": "",
+          "tests": [
+            {
+              "inputs": {
+                "sample_id": "ASAP_PMDBS_sample001",
+                "spatial_adata": "${spatial_visium_preprocess_path}/ASAP_PMDBS_sample001.qc.h5ad",
+                "sc_rnaseq_reference_adata": "${sc_rnaseq_input_path}/final.h5ad",
+                "sc_rnaseq_reference_metadata_csv": "${sc_rnaseq_input_path}/final_metadata.csv",
+                "sc_rnaseq_cell_types_parquet": "${sc_rnaseq_input_path}/scanvi_cell_types.parquet",
+                "batch_key": "${batch_key}",
+                "n_top_genes": "${n_top_genes}",
+                "n_comps": "${n_comps}",
+                "n_neighbors": "${n_neighbors}",
+                "leiden_res": "${leiden_res}",
+                "raw_data_path": "${cohort_raw_data_path}",
+                "workflow_info": "${workflow_info}",
+                "billing_project": "${billing_project}",
+                "container_registry": "${container_registry}",
+                "zones": "${zones}"
+              },
+              "output_tests": {
+                "integrated_adata_object": {
+                  "value": "${input_resources_file_path}/${cohort_workflow_name}/ASAP_PMDBS_sample001.integrated.h5ad",
+                  "test_tasks": [
+                    "compare_file_basename",
+                    "check_hdf5"
+                  ]
+                },
+                "integration_metadata_csv": {
+                  "value": "${input_resources_file_path}/${cohort_workflow_name}/ASAP_PMDBS_sample001.integration_metadata.csv",
+                  "test_tasks": [
+                    "compare_file_basename",
+                    "check_empty_lines",
+                    "check_comma_separated",
+                    "count_columns"
+                  ]
+                }
+              }
+            }
+          ]
+        }
+      }
+    },
+    "wf-common/wdl/structs.wdl": {
+      "key": "wf-common/wdl/structs.wdl",
+      "name": "",
+      "description": "",
+      "tasks": {}
+    },
+    "wf-common/wdl/tasks/upload_final_outputs.wdl": {
+      "key": "wf-common/wdl/tasks/upload_final_outputs.wdl",
+      "name": "",
+      "description": "",
+      "tasks": {
+        "upload_final_outputs": {
+          "key": "upload_final_outputs",
+          "digest": "",
+          "tests": []
+        }
+      }
+    },
+    "wf-common/wdl/tasks/write_cohort_sample_list.wdl": {
+      "key": "wf-common/wdl/tasks/write_cohort_sample_list.wdl",
+      "name": "",
+      "description": "",
+      "tasks": {
+        "write_cohort_sample_list": {
+          "key": "write_cohort_sample_list",
+          "digest": "",
+          "tests": []
+        }
+      }
+    },
+    "wf-common/wdl/tasks/get_workflow_name.wdl": {
+      "key": "wf-common/wdl/tasks/get_workflow_name.wdl",
+      "name": "",
+      "description": "",
+      "tasks": {
+        "validate_workflow_name": {
+          "key": "validate_workflow_name",
+          "digest": "",
+          "tests": []
+        }
+      }
+    },
+    "wf-common/wdl/tasks/get_workflow_metadata.wdl": {
+      "key": "wf-common/wdl/tasks/get_workflow_metadata.wdl",
+      "name": "",
+      "description": "",
+      "tasks": {
+        "get_workflow_metadata": {
+          "key": "get_workflow_metadata",
+          "digest": "",
+          "tests": []
+        }
+      }
+    },
+    "spatial-sc-rnaseq-integration-wdl-ci-custom-test-dir/image_validator.wdl": {
+      "key": "spatial-sc-rnaseq-integration-wdl-ci-custom-test-dir/image_validator.wdl",
+      "name": "",
+      "description": "",
+      "tasks": {
+        "image_validator": {
+          "key": "image_validator",
+          "digest": "",
+          "tests": []
+        }
+      }
+    },
+    "spatial-sc-rnaseq-integration-wdl-ci-custom-test-dir/check_parquet.wdl": {
+      "key": "spatial-sc-rnaseq-integration-wdl-ci-custom-test-dir/check_parquet.wdl",
+      "name": "",
+      "description": "",
+      "tasks": {
+        "check_parquet": {
+          "key": "check_parquet",
+          "digest": "",
+          "tests": []
+        }
+      }
+    },
+    "spatial-sc-rnaseq-integration-wdl-ci-custom-test-dir/check_zip.wdl": {
+      "key": "spatial-sc-rnaseq-integration-wdl-ci-custom-test-dir/check_zip.wdl",
+      "name": "",
+      "description": "",
+      "tasks": {
+        "check_zip": {
+          "key": "check_zip",
+          "digest": "",
+          "tests": []
+        }
+      }
+    }
+  },
+  "engines": {
+    "asap-cromwell": {
+      "key": "asap-cromwell",
+      "enabled": true,
+      "name": ""
+    }
+  },
+  "test_params": {
+    "global_params": {
+      "cohort_id": "asap-cohort",
+      "workflow_name": "spatial_sc_rnaseq_integration",
+      "workflow_version": "v1.0.0",
+      "workflow_release": "https://github.com/ASAP-CRN/spatial-sc-rnaseq-integration-wf/releases/tag/spatial_sc_rnaseq_integration-~{workflow_version}",
+      "workflow_info": [
+        [
+          "${run_timestamp}",
+          "${workflow_name}",
+          "${workflow_version}",
+          "${workflow_release}"
+        ]
+      ],
+      "cohort_raw_data_path": "gs://asap-wdl-ci/workflow_execution/${workflow_name}/${cohort_workflow_name}/${cohort_workflow_version}/${run_timestamp}",
+      "run_timestamp": "2025-07-15T00-00-00Z",
+      "cohort_workflow_name": "integration",
+      "cohort_workflow_version": "1.0.0",
+      "sc_rnaseq_input_path": "gs://asap-wdl-ci/sc-rnaseq-wf/asap-cohort/cohort_analysis",
+      "spatial_visium_preprocess_path": "gs://asap-wdl-ci/spatial-transcriptomics-wf/asap-cohort/spatial_visium/preprocess",
+      "batch_key": "batch_id",
+      "n_top_genes": 3000,
+      "n_comps": 30,
+      "n_neighbors": 15,
+      "leiden_res": [0.05, 0.1, 0.2, 0.4],
+      "billing_project": "dnastack-asap-parkinsons",
+      "container_registry": "us-central1-docker.pkg.dev/dnastack-asap-parkinsons/workflow-images",
+      "zones": "us-central1-c us-central1-f"
+    },
+    "engine_params": {
+      "asap-cromwell": {
+        "input_file_path": "gs://asap-workflow-dev/workflow-resources",
+        "input_resources_file_path": "gs://asap-wdl-ci/${workflow_name}"
+      }
+    }
+  }
+}

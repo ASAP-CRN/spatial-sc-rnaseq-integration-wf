@@ -1,0 +1,3 @@
+[submodule "wf-common"]
+	path = wf-common
+	url = https://github.com/ASAP-CRN/wf-common.git

@@ -1,0 +1,21 @@
+inputs.test_data*.json
+
+# Mac/OSX system file
+.DS_Store
+
+# R
+.Rhistory
+
+# wdl-ci files
+.wdltest.changes.json
+.wdltest.submission.json
+
+# Jupyer Notebook files
+ipynb_checkpoints/*
+*.ipynb
+
+# Python files
+__pycache__/*
+
+# Env files
+**/.env
