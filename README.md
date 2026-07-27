@@ -60,10 +60,10 @@ Cell type deconvolution is performed by running two complementary methods per sa
 
 | Method | Reference | Language | Docker image |
 | :- | :- | :- | :- |
-| [Cell2location](https://github.com/BayraktarLab/cell2location), Bayesian hierarchical model | Kleshchevnikov *et al.*, *Nat Biotechnol* 2022 | Python — GPU-accelerated | `cell2location_tools` |
-| [RCTD](https://github.com/dmcable/spacexr), statistical mixture model | Cable *et al.*, *Nat Biotechnol* 2022 | R — CPU-only | `rctd_tools` |
+| [Cell2location](https://github.com/BayraktarLab/cell2location), Bayesian hierarchical model | [Kleshchevnikov *et al.*, *Nat Biotechnol* 2022](https://pubmed.ncbi.nlm.nih.gov/35027729/) | Python — GPU-accelerated | `cell2location_tools` |
+| [RCTD](https://github.com/dmcable/spacexr), statistical mixture model | [Cable *et al.*, *Nat Biotechnol* 2022](https://pubmed.ncbi.nlm.nih.gov/33603203/) | R — CPU-only | `rctd_tools` |
 
-Both methods use the scRNA-seq cohort as a reference to infer cell type composition per spot. Cell2location estimates absolute cell abundances per spot and provides posterior uncertainty for each prediction. RCTD estimates cell type proportions per spot and is fast and robust across tissue types.
+Both methods use the scRNA-seq cohort as a reference to infer cell type composition per spot. Cell2location estimates absolute cell abundances per spot and provides posterior uncertainty for each prediction. RCTD estimates cell type proportions per spot and is fast and robust across tissue types. These methods were reported as top-performers in benchmarks for the task ([Li *et al.*, *Nat Methods* 2022](https://pubmed.ncbi.nlm.nih.gov/35577954/); [Gillespie *et al.*, *Cells* 2025](https://pubmed.ncbi.nlm.nih.gov/40710313/)).
 
 Both methods are designed for spot-based spatial transcriptomics and are applied to Visium samples. GeoMx ROI data may also be processed where ROI size and design make spot-level deconvolution appropriate.
 
