@@ -93,18 +93,6 @@
         }
       }
     },
-    "wf-common/wdl/tasks/get_workflow_name.wdl": {
-      "key": "wf-common/wdl/tasks/get_workflow_name.wdl",
-      "name": "",
-      "description": "",
-      "tasks": {
-        "validate_workflow_name": {
-          "key": "validate_workflow_name",
-          "digest": "",
-          "tests": []
-        }
-      }
-    },
     "wf-common/wdl/tasks/get_workflow_metadata.wdl": {
       "key": "wf-common/wdl/tasks/get_workflow_metadata.wdl",
       "name": "",
