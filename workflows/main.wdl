@@ -59,9 +59,7 @@ workflow spatial_sc_rnaseq_integration {
 
 	call GetWorkflowMetadata.get_workflow_metadata {
 		input:
-			workflow_name    = "spatial_sc_rnaseq_integration",
-			workflow_version = workflow_version,
-			workflow_release = workflow_release
+			zones = zones
 	}
 
 	# scRNA-seq reference: use first project (expected to be the cross-team cohort)
@@ -89,16 +87,15 @@ workflow spatial_sc_rnaseq_integration {
 			n_neighbors                              = n_neighbors,
 			leiden_res                               = leiden_res,
 			raw_data_path                            = cohort_raw_data_bucket_spatial_sc_rnaseq,
-			workflow_info                            = get_workflow_metadata.workflow_info,
-			billing_project                          = "dnastack-asap-parkinsons",
+			billing_project                          = get_workflow_metadata.billing_project,
 			container_registry                       = container_registry,
 			zones                                    = zones
 	}
 
 	output {
 		# Array[File] — flat over all samples (across all projects)
-		Array[File]  visium_deconvoluted_adata_objects   = Integration.integration.visium_deconvoluted_adata_objects
-		Array[File]  visium_deconvolution_metadata_csvs  = Integration.integration.visium_deconvolution_metadata_csvs
-		Array[File?] visium_inf_aver_csv_gzs             = Integration.integration.visium_inf_aver_csv_gzs
+		Array[File]  visium_deconvoluted_adata_objects   = integration.visium_deconvoluted_adata_objects
+		Array[File]  visium_deconvolution_metadata_csvs  = integration.visium_deconvolution_metadata_csvs
+		Array[Array[File]] visium_inf_aver_csv_gzs        = integration.visium_inf_aver_csv_gzs
 	}
 }

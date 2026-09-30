@@ -52,7 +52,6 @@ workflow integration {
 		Array[Float]  leiden_res
 
 		String               raw_data_path
-		Array[Array[String]] workflow_info
 		String               billing_project
 		String               container_registry
 		String               zones
@@ -76,7 +75,6 @@ workflow integration {
 				n_neighbors                             = n_neighbors,
 				leiden_res                              = leiden_res,
 				raw_data_path                           = raw_data_path,
-				workflow_info                           = workflow_info,
 				billing_project                         = billing_project,
 				container_registry                      = container_registry,
 				zones                                   = zones
@@ -87,7 +85,7 @@ workflow integration {
 		# Array[File] — flat over all samples (across all projects)
 		Array[File]  visium_deconvoluted_adata_objects  = cell2location_visium.deconvoluted_adata_object
 		Array[File]  visium_deconvolution_metadata_csvs = cell2location_visium.deconvolution_metadata_csv
-		Array[File?] visium_inf_aver_csv_gzs            = cell2location_visium.inf_aver_csv_gz
+		Array[Array[File]] visium_inf_aver_csv_gzs       = cell2location_visium.inf_aver_csv_gz
 	}
 
 	parameter_meta {
@@ -106,7 +104,6 @@ workflow integration {
 		n_neighbors:                             {help: "Neighbourhood size for downstream spot clustering"}
 		leiden_res:                              {help: "Leiden resolutions controlling the coarseness of clustering"}
 		raw_data_path:                           {help: "GCS path to raw data bucket; intermediate outputs are stored here"}
-		workflow_info:                           {help: "Workflow name, version, and release metadata from get_workflow_metadata"}
 		billing_project:                         {help: "GCP billing project for requester-pays bucket access"}
 		container_registry:                      {help: "Container registry hosting workflow Docker images"}
 		zones:                                   {help: "GCP zones where compute will run"}
@@ -114,7 +111,7 @@ workflow integration {
 		# Outputs
 		visium_deconvoluted_adata_objects:  {help: "Cell2location deconvoluted AnnData objects (.h5ad), one per Visium sample"}
 		visium_deconvolution_metadata_csvs: {help: "Per-spot deconvolution metadata CSV (cell type fractions + Leiden clusters), one per Visium sample"}
-		visium_inf_aver_csv_gzs:            {help: "Cell2location reference signatures (inf_aver.csv.gz), one per sample that ran Stage 1 (None when pre-computed model was supplied)"}
+		visium_inf_aver_csv_gzs:            {help: "Cell2location reference signatures (inf_aver.csv.gz), one per sample that ran Stage 1; empty array per sample when pre-computed model was supplied"}
 	}
 }
 
@@ -144,7 +141,6 @@ task cell2location_visium {
 		Array[Float] leiden_res
 
 		String               raw_data_path
-		Array[Array[String]] workflow_info
 		String               billing_project
 		String               container_registry
 		String               zones
@@ -181,8 +177,8 @@ task cell2location_visium {
 	output {
 		File  deconvoluted_adata_object  = "~{sample_id}.deconvoluted.h5ad"
 		File  deconvolution_metadata_csv = "~{sample_id}.deconvolution_metadata.csv"
-		# Present only when Stage 1 ran (sc_rnaseq_reference_adata provided); None in Mode B.
-		File? inf_aver_csv_gz            = if defined(sc_rnaseq_reference_cell2location_model) then None else "inf_aver.csv.gz"
+		# Non-empty only when Stage 1 ran (sc_rnaseq_reference_adata provided); empty in Mode B.
+		Array[File] inf_aver_csv_gz      = glob("inf_aver.csv.gz")
 	}
 
 	runtime {

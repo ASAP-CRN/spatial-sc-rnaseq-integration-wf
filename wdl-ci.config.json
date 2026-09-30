@@ -36,7 +36,6 @@
                 "n_neighbors": "${n_neighbors}",
                 "leiden_res": "${leiden_res}",
                 "raw_data_path": "${cohort_raw_data_path}",
-                "workflow_info": "${workflow_info}",
                 "billing_project": "${billing_project}",
                 "container_registry": "${container_registry}",
                 "zones": "${zones}"
@@ -168,14 +167,6 @@
       "workflow_name": "spatial_sc_rnaseq_integration",
       "workflow_version": "v1.0.0",
       "workflow_release": "https://github.com/ASAP-CRN/spatial-sc-rnaseq-integration-wf/releases/tag/spatial_sc_rnaseq_integration-~{workflow_version}",
-      "workflow_info": [
-        [
-          "${run_timestamp}",
-          "${workflow_name}",
-          "${workflow_version}",
-          "${workflow_release}"
-        ]
-      ],
       "cohort_raw_data_path": "gs://asap-wdl-ci/workflow_execution/${workflow_name}/${cohort_workflow_name}/${cohort_workflow_version}/${run_timestamp}",
       "run_timestamp": "2025-07-15T00-00-00Z",
       "cohort_workflow_name": "cell2location_visium",
