@@ -43,10 +43,13 @@ RUN cd /opt/Python-${PYTHON3_VERSION} \
 RUN update-alternatives --install /usr/bin/python3 python3 /opt/Python-${PYTHON3_VERSION}/python 1 \
 	&& update-alternatives --set python3 /opt/Python-${PYTHON3_VERSION}/python
 
-COPY ./requirements.txt /opt/requirements.txt
+# Build context: repo root (docker build -f docker/cell2location_tools/Dockerfile .)
+COPY docker/cell2location_tools/requirements.txt /opt/requirements.txt
 RUN python3 -m pip cache purge
 RUN python3 -m pip install -r /opt/requirements.txt
 
 COPY --from=scripts /opt/scripts /opt/scripts
-COPY scripts /opt/scripts
+COPY docker/cell2location_tools/scripts /opt/scripts
+COPY utils /opt/scripts/utils
 ENV PATH "${PATH}:/opt/scripts:/opt/scripts/main"
+ENV PYTHONPATH /opt/scripts

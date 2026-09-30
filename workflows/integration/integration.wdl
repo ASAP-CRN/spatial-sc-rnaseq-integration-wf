@@ -4,18 +4,19 @@ import "../structs.wdl"
 
 # Spatial + scRNA-seq integration sub-workflow.
 #
-# For each spatial sample the workflow integrates the per-sample spatial adata
-# (raw UMI counts, pre-Harmony) against the scRNA-seq cohort reference.
-# Samples from all projects are flattened upstream and scattered flat here.
+# Deconvolution method: Cell2location (Bayesian hierarchical model, GPU-accelerated).
+# RCTD (statistical mixture model, R) is planned for a future version.
+#
+# For each Visium sample the workflow runs Cell2location against the scRNA-seq cohort
+# reference. Samples from all projects are flattened upstream and scattered flat here.
 #
 # scRNA-seq inputs:  sc-rnaseq-wf cohort_analysis (reference for all spatial samples)
-# Spatial inputs:    per-sample pre-QC adatas (raw UMI counts) from spatial-transcriptomics-wf
+# Spatial inputs:    per-sample post-QC adatas (raw UMI counts) from spatial-transcriptomics-wf
 #                    - Visium: spatial_visium preprocess.qc_adata_objects
-#                    - GeoMx:  spatial_geomx process_to_adata.processed_adata_objects
 
 workflow integration {
 	meta {
-		description: "Integrate per-sample spatial adatas against an scRNA-seq cohort reference; Visium and GeoMx samples are scattered in parallel"
+		description: "Deconvolute per-sample Visium adatas against an scRNA-seq cohort reference using Cell2location"
 		version: "v1.0.0"
 		author: "DNAstack Bioinformatics Team"
 		email: "bioinformatics@dnastack.com"
@@ -25,149 +26,174 @@ workflow integration {
 		String cohort_id
 
 		# scRNA-seq cohort reference (used for all spatial samples)
-		File sc_rnaseq_reference_adata
-		File sc_rnaseq_reference_metadata_csv
-		File sc_rnaseq_cell_types_parquet
+		File   sc_rnaseq_reference_adata
 
-		# Flat lists of per-sample adatas (flattened across projects upstream in main.wdl)
+		# Optional pre-computed Cell2location reference signatures (inf_aver.csv.gz).
+		# When provided, Stage 1 NB regression is skipped. When omitted, Stage 1 is
+		# trained from sc_rnaseq_reference_adata (and inf_aver.csv.gz is saved per sample).
+		# TODO: add a dedicated build_reference_signatures task so Stage 1 runs once
+		#       rather than being re-trained in each scatter when no model is pre-provided.
+		File?  sc_rnaseq_reference_cell2location_model
+
+		# Flat list of per-sample adatas (flattened across projects upstream in main.wdl)
 		Array[SpatialVisiumSample] visium_samples
-		Array[SpatialGeomxSample]  geomx_samples
 
+		# Cell2location deconvolution parameters
 		String batch_key
-		Int n_top_genes
-		Int n_comps
-		Int n_neighbors
-		Array[Float] leiden_res
+		String cell_type_key
+		Int    n_cells_per_spot
+		Int    detection_alpha
+		Int    max_epochs_ref
+		Int    max_epochs_spatial
 
-		String raw_data_path
+		# Downstream clustering parameters
+		Int           n_comps
+		Int           n_neighbors
+		Array[Float]  leiden_res
+
+		String               raw_data_path
 		Array[Array[String]] workflow_info
-		String billing_project
-		String container_registry
-		String zones
+		String               billing_project
+		String               container_registry
+		String               zones
 	}
 
 	# Visium: scatter flat over all samples (across all projects)
 	scatter (sample in visium_samples) {
-		call integrate_sample as integrate_visium {
+		call cell2location_visium {
 			input:
-				sample_id                        = sample.sample_id,
-				spatial_adata                    = sample.qc_adata_object,
-				sc_rnaseq_reference_adata        = sc_rnaseq_reference_adata,
-				sc_rnaseq_reference_metadata_csv = sc_rnaseq_reference_metadata_csv,
-				sc_rnaseq_cell_types_parquet     = sc_rnaseq_cell_types_parquet,
-				batch_key                        = batch_key,
-				n_top_genes                      = n_top_genes,
-				n_comps                          = n_comps,
-				n_neighbors                      = n_neighbors,
-				leiden_res                       = leiden_res,
-				raw_data_path                    = raw_data_path,
-				workflow_info                    = workflow_info,
-				billing_project                  = billing_project,
-				container_registry               = container_registry,
-				zones                            = zones
-		}
-	}
-
-	# GeoMx: same flat scatter pattern
-	scatter (sample in geomx_samples) {
-		call integrate_sample as integrate_geomx {
-			input:
-				sample_id                        = sample.sample_id,
-				spatial_adata                    = sample.processed_adata_object,
-				sc_rnaseq_reference_adata        = sc_rnaseq_reference_adata,
-				sc_rnaseq_reference_metadata_csv = sc_rnaseq_reference_metadata_csv,
-				sc_rnaseq_cell_types_parquet     = sc_rnaseq_cell_types_parquet,
-				batch_key                        = batch_key,
-				n_top_genes                      = n_top_genes,
-				n_comps                          = n_comps,
-				n_neighbors                      = n_neighbors,
-				leiden_res                       = leiden_res,
-				raw_data_path                    = raw_data_path,
-				workflow_info                    = workflow_info,
-				billing_project                  = billing_project,
-				container_registry               = container_registry,
-				zones                            = zones
+				sample_id                               = sample.sample_id,
+				spatial_adata                           = sample.qc_adata_object,
+				sc_rnaseq_reference_adata               = sc_rnaseq_reference_adata,
+				sc_rnaseq_reference_cell2location_model = sc_rnaseq_reference_cell2location_model,
+				batch_key                               = batch_key,
+				cell_type_key                           = cell_type_key,
+				n_cells_per_spot                        = n_cells_per_spot,
+				detection_alpha                         = detection_alpha,
+				max_epochs_ref                          = max_epochs_ref,
+				max_epochs_spatial                      = max_epochs_spatial,
+				n_comps                                 = n_comps,
+				n_neighbors                             = n_neighbors,
+				leiden_res                              = leiden_res,
+				raw_data_path                           = raw_data_path,
+				workflow_info                           = workflow_info,
+				billing_project                         = billing_project,
+				container_registry                      = container_registry,
+				zones                                   = zones
 		}
 	}
 
 	output {
 		# Array[File] — flat over all samples (across all projects)
-		Array[File] visium_integrated_adata_objects  = integrate_visium.integrated_adata_object
-		Array[File] visium_integration_metadata_csvs = integrate_visium.integration_metadata_csv
-		Array[File] geomx_integrated_adata_objects   = integrate_geomx.integrated_adata_object
-		Array[File] geomx_integration_metadata_csvs  = integrate_geomx.integration_metadata_csv
+		Array[File]  visium_deconvoluted_adata_objects  = cell2location_visium.deconvoluted_adata_object
+		Array[File]  visium_deconvolution_metadata_csvs = cell2location_visium.deconvolution_metadata_csv
+		Array[File?] visium_inf_aver_csv_gzs            = cell2location_visium.inf_aver_csv_gz
 	}
 
 	parameter_meta {
 		# Inputs
-		cohort_id:                        {help: "Cohort identifier; used to name output files"}
-		sc_rnaseq_reference_adata:        {help: "cohort_analysis.final_adata_object (.h5ad) — Harmony-integrated, cell-type-annotated AnnData used as the deconvolution reference"}
-		sc_rnaseq_reference_metadata_csv: {help: "cohort_analysis.final_metadata_csv — per-cell metadata table"}
-		sc_rnaseq_cell_types_parquet:     {help: "cohort_analysis.scanvi_cell_types_parquet — scANVI cell type predictions"}
-		visium_samples:                   {help: "Flat list of Visium per-sample adatas (raw UMI counts, post-QC, pre-Harmony) to integrate independently"}
-		geomx_samples:                    {help: "Flat list of GeoMx per-sample adatas (Q3-normalized, pre-Harmony) to integrate independently"}
-		batch_key:                        {help: "Key in AnnData object for batch information"}
-		n_top_genes:                      {help: "Number of highly variable genes to retain"}
-		n_comps:                          {help: "Number of principal components to compute"}
-		n_neighbors:                      {help: "Size of local neighbourhood used for manifold approximation"}
-		leiden_res:                       {help: "Leiden resolutions controlling the coarseness of clustering"}
-		raw_data_path:                    {help: "GCS path to raw data bucket; intermediate outputs are stored here"}
-		workflow_info:                    {help: "Workflow name, version, and release metadata from get_workflow_metadata"}
-		billing_project:                  {help: "GCP billing project for requester-pays bucket access"}
-		container_registry:               {help: "Container registry hosting workflow Docker images"}
-		zones:                            {help: "GCP zones where compute will run"}
+		cohort_id:                               {help: "Cohort identifier; used to name output files"}
+		sc_rnaseq_reference_adata:               {help: "cohort_analysis.final_adata_object (.h5ad) — Harmony-integrated, cell-type-annotated AnnData used as the deconvolution reference"}
+		sc_rnaseq_reference_cell2location_model: {help: "Pre-computed inf_aver.csv.gz from a previous run; skips Stage 1 NB regression when provided"}
+		visium_samples:                          {help: "Flat list of Visium per-sample adatas (raw UMI counts, post-QC) to deconvolute independently"}
+		batch_key:                               {help: "Column in reference .obs used as batch covariate in the NB regression model"}
+		cell_type_key:                           {help: "Column in reference .obs to use as the cell type label"}
+		n_cells_per_spot:                        {help: "Cell2location N_cells_per_location prior; 8 for brain Visium"}
+		detection_alpha:                         {help: "Cell2location detection rate prior (20–200); higher values assume low technical variability"}
+		max_epochs_ref:                          {help: "NB regression (Stage 1) training epochs"}
+		max_epochs_spatial:                      {help: "Cell2location spatial mapping (Stage 2) training epochs"}
+		n_comps:                                 {help: "Number of PCA components for downstream spot clustering"}
+		n_neighbors:                             {help: "Neighbourhood size for downstream spot clustering"}
+		leiden_res:                              {help: "Leiden resolutions controlling the coarseness of clustering"}
+		raw_data_path:                           {help: "GCS path to raw data bucket; intermediate outputs are stored here"}
+		workflow_info:                           {help: "Workflow name, version, and release metadata from get_workflow_metadata"}
+		billing_project:                         {help: "GCP billing project for requester-pays bucket access"}
+		container_registry:                      {help: "Container registry hosting workflow Docker images"}
+		zones:                                   {help: "GCP zones where compute will run"}
 
 		# Outputs
-		visium_integrated_adata_objects:  {help: "Integrated AnnData objects (.h5ad), one per Visium sample"}
-		visium_integration_metadata_csvs: {help: "Integration metadata CSV, one per Visium sample"}
-		geomx_integrated_adata_objects:   {help: "Integrated AnnData objects (.h5ad), one per GeoMx sample"}
-		geomx_integration_metadata_csvs:  {help: "Integration metadata CSV, one per GeoMx sample"}
+		visium_deconvoluted_adata_objects:  {help: "Cell2location deconvoluted AnnData objects (.h5ad), one per Visium sample"}
+		visium_deconvolution_metadata_csvs: {help: "Per-spot deconvolution metadata CSV (cell type fractions + Leiden clusters), one per Visium sample"}
+		visium_inf_aver_csv_gzs:            {help: "Cell2location reference signatures (inf_aver.csv.gz), one per sample that ran Stage 1 (None when pre-computed model was supplied)"}
 	}
 }
 
-task integrate_sample {
+task cell2location_visium {
 	meta {
-		description: "Integrate one spatial sample against the scRNA-seq cohort reference"
+		description: "Deconvolute one Visium sample against the scRNA-seq cohort reference using Cell2location"
 	}
 
 	input {
 		String sample_id
-		File   spatial_adata                  # per-sample spatial adata (.h5ad) — raw UMI counts, pre-Harmony
-		File   sc_rnaseq_reference_adata      # scRNA-seq cohort_analysis.final_adata_object (.h5ad)
-		File   sc_rnaseq_reference_metadata_csv
-		File   sc_rnaseq_cell_types_parquet   # cohort_analysis.scanvi_cell_types_parquet
+		File   spatial_adata              # per-sample Visium adata (.h5ad) — raw UMI counts, post-QC
+
+		# Exactly one of the two reference inputs must be provided (validated at runtime):
+		#   sc_rnaseq_reference_adata               → trains Stage 1 NB regression, saves inf_aver.csv.gz
+		#   sc_rnaseq_reference_cell2location_model → loads pre-computed inf_aver.csv.gz, skips Stage 1
+		File?  sc_rnaseq_reference_adata
+		File?  sc_rnaseq_reference_cell2location_model
 
 		String batch_key
-		Int n_top_genes
-		Int n_comps
-		Int n_neighbors
+		String cell_type_key
+		Int    n_cells_per_spot
+		Int    detection_alpha
+		Int    max_epochs_ref
+		Int    max_epochs_spatial
+		Int    n_comps
+		Int    n_neighbors
 		Array[Float] leiden_res
 
-		String raw_data_path
+		String               raw_data_path
 		Array[Array[String]] workflow_info
-		String billing_project
-		String container_registry
-		String zones
+		String               billing_project
+		String               container_registry
+		String               zones
 	}
 
-	Int disk_size = ceil(size(spatial_adata, "GB") + size(sc_rnaseq_reference_adata, "GB") + 50)
+	Int disk_size = ceil(size(spatial_adata, "GB") + size(select_first([sc_rnaseq_reference_adata, sc_rnaseq_reference_cell2location_model]), "GB") + 50)
 
 	command <<<
 		set -euo pipefail
 
-		echo "TODO: integrate spatial sample ~{sample_id} with scRNA-seq reference"
+		# utils/ lives alongside the scripts in the container at /opt/scripts/utils/
+		# (requires: COPY utils /opt/scripts/utils in the Dockerfile build context)
+		export PYTHONPATH=/opt/scripts
+
+		python3 /opt/scripts/cell2location_deconvolute.py \
+			--sample-id ~{sample_id} \
+			--spatial-h5ad ~{spatial_adata} \
+			~{if defined(sc_rnaseq_reference_cell2location_model)
+			  then "--sc-rnaseq-reference-cell2location-model " + select_first([sc_rnaseq_reference_cell2location_model])
+			  else "--sc-rnaseq-reference-adata " + select_first([sc_rnaseq_reference_adata])} \
+			--batch-key ~{batch_key} \
+			--cell-type-key ~{cell_type_key} \
+			--n-cells-per-spot ~{n_cells_per_spot} \
+			--detection-alpha ~{detection_alpha} \
+			--max-epochs-ref ~{max_epochs_ref} \
+			--max-epochs-spatial ~{max_epochs_spatial} \
+			--n-comps ~{n_comps} \
+			--n-neighbors ~{n_neighbors} \
+			--leiden-res ~{sep=" " leiden_res} \
+			--output-dir . \
+			--promote
 	>>>
 
 	output {
-		File integrated_adata_object  = "~{sample_id}.integrated.h5ad"
-		File integration_metadata_csv = "~{sample_id}.integration_metadata.csv"
+		File  deconvoluted_adata_object  = "~{sample_id}.deconvoluted.h5ad"
+		File  deconvolution_metadata_csv = "~{sample_id}.deconvolution_metadata.csv"
+		# Present only when Stage 1 ran (sc_rnaseq_reference_adata provided); None in Mode B.
+		File? inf_aver_csv_gz            = if defined(sc_rnaseq_reference_cell2location_model) then None else "inf_aver.csv.gz"
 	}
 
 	runtime {
-		docker: "~{container_registry}/integration_tools:1.0.0"
+		docker: "~{container_registry}/cell2location_tools:1.0.0"
 		cpu: 8
 		memory: "52 GB"
 		disks: "local-disk " + disk_size + " SSD"
+		bootDiskSizeGb: 40
+		gpuType: "nvidia-tesla-t4"
+		gpuCount: 1
+		nvidiaDriverVersion: "545.23.08" #!UnknownRuntimeKey
 		preemptible: 1
 		zones: zones
 	}

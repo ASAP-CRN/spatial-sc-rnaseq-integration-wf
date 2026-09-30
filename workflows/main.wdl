@@ -5,8 +5,11 @@ version 1.0
 # this workflow does not handle raw FASTQ or SpaceRanger/CellRanger execution.
 #
 # The scRNA-seq cohort adata is used as a reference for all spatial samples.
-# Each spatial sample carries its own per-sample adata (raw UMI counts, pre-Harmony);
-# samples from all projects are flattened and integrated in parallel against the reference.
+# Each spatial sample carries its own per-sample adata (raw UMI counts, post-QC);
+# samples from all projects are flattened and deconvoluted in parallel against the reference.
+#
+# Deconvolution method: Cell2location (Bayesian hierarchical model, GPU-accelerated).
+# RCTD support is planned for a future version.
 
 import "structs.wdl"
 import "../wf-common/wdl/tasks/get_workflow_metadata.wdl" as GetWorkflowMetadata
@@ -23,20 +26,29 @@ workflow spatial_sc_rnaseq_integration {
 		Array[ScRnaseqProject] sc_rnaseq_projects
 
 		# Processed spatial outputs (from spatial-transcriptomics-wf).
-		# Each project carries per-sample adatas (raw UMI counts, pre-Harmony);
-		# samples are flattened across projects and integrated independently.
+		# Each project carries per-sample adatas (raw UMI counts, post-QC);
+		# samples are flattened across projects and deconvoluted independently.
 		Array[SpatialVisiumProject] spatial_visium_projects = []
-		Array[SpatialGeomxProject]  spatial_geomx_projects  = []
 
-		# Integration parameters
-		String batch_key            = "batch_id"
-		Int n_top_genes             = 3000
-		Int n_comps                 = 30
-		Int n_neighbors             = 15
-		Array[Float] leiden_res     = [0.05, 0.1, 0.2, 0.4]
+		# Optional pre-computed Cell2location reference signatures (inf_aver.csv.gz).
+		# When provided, Stage 1 NB regression is skipped for all samples.
+		# When omitted, Stage 1 is trained from sc_rnaseq_projects[0].final_adata_object.
+		File? sc_rnaseq_reference_cell2location_model
+
+		# Cell2location deconvolution parameters
+		String batch_key        = "batch_id"
+		String cell_type_key    = "cell_type_pred"
+		Int n_cells_per_spot    = 8
+		Int detection_alpha     = 100
+		Int max_epochs_ref      = 250
+		Int max_epochs_spatial  = 30000
+
+		# Downstream clustering parameters
+		Int n_comps             = 30
+		Int n_neighbors         = 15
+		Array[Float] leiden_res = [0.05, 0.1, 0.2, 0.4]
 
 		String cohort_raw_data_bucket_spatial_sc_rnaseq
-		Array[String] cohort_staging_data_buckets_spatial_sc_rnaseq
 
 		String container_registry
 		String zones = "us-central1-c us-central1-f"
@@ -53,39 +65,37 @@ workflow spatial_sc_rnaseq_integration {
 	}
 
 	# scRNA-seq reference: use first project (expected to be the cross-team cohort)
-	File sc_rnaseq_reference_adata        = sc_rnaseq_projects[0].final_adata_object
-	File sc_rnaseq_reference_metadata_csv = sc_rnaseq_projects[0].final_metadata_csv
-	File sc_rnaseq_cell_types_parquet     = sc_rnaseq_projects[0].scanvi_cell_types_parquet
+	File sc_rnaseq_reference_adata = sc_rnaseq_projects[0].final_adata_object
 
 	# Flatten per-sample data across all projects
 	Array[SpatialVisiumSample] visium_samples = flatten(spatial_visium_projects[*].samples)
-	Array[SpatialGeomxSample]  geomx_samples  = flatten(spatial_geomx_projects[*].samples)
 
 	call Integration.integration {
 		input:
-			cohort_id                        = cohort_id,
-			sc_rnaseq_reference_adata        = sc_rnaseq_reference_adata,
-			sc_rnaseq_reference_metadata_csv = sc_rnaseq_reference_metadata_csv,
-			sc_rnaseq_cell_types_parquet     = sc_rnaseq_cell_types_parquet,
-			visium_samples                   = visium_samples,
-			geomx_samples                    = geomx_samples,
-			batch_key                        = batch_key,
-			n_top_genes                      = n_top_genes,
-			n_comps                          = n_comps,
-			n_neighbors                      = n_neighbors,
-			leiden_res                       = leiden_res,
-			raw_data_path                    = cohort_raw_data_bucket_spatial_sc_rnaseq,
-			workflow_info                    = get_workflow_metadata.workflow_info,
-			billing_project                  = "dnastack-asap-parkinsons",
-			container_registry               = container_registry,
-			zones                            = zones
+			cohort_id                                = cohort_id,
+			sc_rnaseq_reference_adata                = sc_rnaseq_reference_adata,
+			sc_rnaseq_reference_cell2location_model  = sc_rnaseq_reference_cell2location_model,
+			visium_samples                           = visium_samples,
+			batch_key                                = batch_key,
+			cell_type_key                            = cell_type_key,
+			n_cells_per_spot                         = n_cells_per_spot,
+			detection_alpha                          = detection_alpha,
+			max_epochs_ref                           = max_epochs_ref,
+			max_epochs_spatial                       = max_epochs_spatial,
+			n_comps                                  = n_comps,
+			n_neighbors                              = n_neighbors,
+			leiden_res                               = leiden_res,
+			raw_data_path                            = cohort_raw_data_bucket_spatial_sc_rnaseq,
+			workflow_info                            = get_workflow_metadata.workflow_info,
+			billing_project                          = "dnastack-asap-parkinsons",
+			container_registry                       = container_registry,
+			zones                                    = zones
 	}
 
 	output {
 		# Array[File] — flat over all samples (across all projects)
-		Array[File] visium_integrated_adata_objects  = Integration.integration.visium_integrated_adata_objects
-		Array[File] visium_integration_metadata_csvs = Integration.integration.visium_integration_metadata_csvs
-		Array[File] geomx_integrated_adata_objects   = Integration.integration.geomx_integrated_adata_objects
-		Array[File] geomx_integration_metadata_csvs  = Integration.integration.geomx_integration_metadata_csvs
+		Array[File]  visium_deconvoluted_adata_objects   = Integration.integration.visium_deconvoluted_adata_objects
+		Array[File]  visium_deconvolution_metadata_csvs  = Integration.integration.visium_deconvolution_metadata_csvs
+		Array[File?] visium_inf_aver_csv_gzs             = Integration.integration.visium_inf_aver_csv_gzs
 	}
 }
