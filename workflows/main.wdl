@@ -67,8 +67,11 @@ workflow spatial_sc_rnaseq_integration {
 	# scRNA-seq reference: use first project (expected to be the cross-team cohort)
 	File sc_rnaseq_reference_adata = sc_rnaseq_projects[0].final_adata_object
 
-	# Flatten per-sample data across all projects
-	Array[SpatialVisiumSample] visium_samples = flatten(spatial_visium_projects[*].samples)
+	# Flatten per-sample data across all projects (WDL 1.0: scatter then flatten)
+	scatter (project in spatial_visium_projects) {
+		Array[SpatialVisiumSample] project_samples = project.samples
+	}
+	Array[SpatialVisiumSample] visium_samples = flatten(project_samples)
 
 	call Integration.integration {
 		input:
