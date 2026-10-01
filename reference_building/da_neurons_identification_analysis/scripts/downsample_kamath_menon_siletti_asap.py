@@ -10,8 +10,8 @@ of the following sources:
 Phase 1 of a two-script pipeline (CPU-only: scrublet, filtering,
 downsampling). Run this script first, then integrate_kamath_menon_siletti_asap.py
 (GPU-bound scVI, scANVI) with the SAME --kamath-non-da-per-type /
---downsample-menon / --siletti-scale / --downsample-asap-cohort values, so
-it locates the caches this script wrote.
+--kamath-all-random / --downsample-kamath / --downsample-menon / --siletti-scale /
+--downsample-asap-cohort values, so it locates the caches this script wrote.
 
 - Kamath et al. (Nat Neurosci 2022): 22,048 DA neurons (10 subtypes) + non-DA
   cell types from SNpc.
@@ -176,6 +176,68 @@ def _write_qc_summary(path: str) -> None:
     pd.DataFrame(_QC_SUMMARY_ROWS).to_csv(path, sep="\t", index=False)
     print(f"  Wrote QC summary ({len(_QC_SUMMARY_ROWS)} rows) → {path}")
     _QC_SUMMARY_ROWS.clear()
+
+
+def _log_qc_pair(
+    source: str,
+    preqc: ad.AnnData,
+    postqc: ad.AnnData,
+    preqc_note: str = "",
+    postqc_note: str = "",
+) -> None:
+    """
+    Print a single combined preQC / postQC summary line.
+
+    Parameters
+    ----------
+    source : str
+        Human-readable source name (e.g. "Kamath", "Menon").
+    preqc : ad.AnnData
+        preQC AnnData — may be backed or in-memory.
+    postqc : ad.AnnData
+        postQC AnnData — may be backed or in-memory.
+    preqc_note : str
+        Optional parenthetical after the preQC gene count.
+    postqc_note : str
+        Optional parenthetical after the postQC gene count.
+    """
+    pre_note  = f" ({preqc_note})"  if preqc_note  else ""
+    post_note = f" ({postqc_note})" if postqc_note else ""
+    print(
+        f"  preQC {preqc.n_obs:,} cells x {preqc.n_vars:,} genes{pre_note}"
+        f" / postQC {postqc.n_obs:,} cells x {postqc.n_vars:,} genes{post_note}"
+    )
+
+
+def _log_cached_qc(source: str, tag: str, preqc: ad.AnnData, postqc: ad.AnnData) -> None:
+    """
+    Print the standard cache-hit block for a source's preQC/postQC pair.
+
+    Parameters
+    ----------
+    source : str
+        Human-readable source name (e.g. "Kamath", "Menon").
+    tag : str
+        Parameter tag shown in the header (e.g. "rand_100000", "scale_100000").
+    preqc : ad.AnnData
+        preQC AnnData — may be backed or in-memory.
+    postqc : ad.AnnData
+        postQC AnnData — may be backed or in-memory.
+    """
+    print(f"  Loading cached {source} preQC/postQC ({tag})")
+    _log_qc_pair(source, preqc, postqc)
+    print(preqc.obs.head())
+    print(postqc.obs.head())
+
+
+def _log_input_file(path: str) -> None:
+    """Print a Found/Missing line for a raw input H5AD."""
+    if os.path.exists(path):
+        size_mb = os.path.getsize(path) / 1e6
+        print(f"  Found ({size_mb:.0f} MB): {path}")
+    else:
+        print(f"  Missing: {path}")
+
 
 def _apply_qc_filters(
     adata: ad.AnnData,
@@ -366,11 +428,46 @@ def _harmonize_cellxgene_disease(disease: pd.Series) -> pd.Series:
     # only mapped values as categories, breaking a later fillna("Other").
     return disease.astype(str).map(_CELLXGENE_DISEASE_TO_CONDITION_ID).fillna("Other")
 
+
+def _annotate_kamath_obs(adata: ad.AnnData, basename: str, da_subtype_column: str) -> None:
+    """
+    Set standard obs columns on a Kamath AnnData in place.
+
+    Parameters
+    ----------
+    adata : ad.AnnData
+        Kamath AnnData (in memory, not backed).
+    basename : str
+        Filename, used in error messages.
+    da_subtype_column : str
+        obs column with fine-grained DA subtype labels.
+    """
+    adata.layers["counts"] = extract_raw_counts(adata)
+    adata.obs["source"] = "kamath"
+    if "donor_id" not in adata.obs.columns:
+        raise KeyError(f"'donor_id' column not found in {basename}.")
+    adata.obs["batch"] = "kamath_" + adata.obs["donor_id"].astype(str)
+    if da_subtype_column in adata.obs.columns:
+        adata.obs["cell_type_scanvi"] = adata.obs[da_subtype_column].astype(str)
+    else:
+        adata.obs["cell_type_scanvi"] = adata.obs["cell_type"].astype(str)
+    is_da = adata.obs["cell_type"].str.lower().str.contains("dopaminergic")
+    if da_subtype_column in adata.obs.columns and is_da.any():
+        adata.obs["da_subtype"] = adata.obs[da_subtype_column].where(is_da, other=np.nan)
+    else:
+        adata.obs["da_subtype"] = np.nan
+    if "disease" not in adata.obs.columns:
+        raise KeyError(f"'disease' column not found in {basename}.")
+    adata.obs["condition_id"] = _harmonize_cellxgene_disease(adata.obs["disease"])
+
+
 def load_kamath(
     kamath_h5ad_dir: str,
     exclude_files: list[str],
     da_subtype_column: str,
     n_non_da_per_type: int = 0,
+    all_random: bool = False,
+    n_total: int = 0,
     qc_pct_counts_mt_max: float = _QC_PCT_COUNTS_MT_MAX,
     qc_doublet_score_max: float = _QC_DOUBLET_SCORE_MAX,
     qc_total_counts_limits: tuple = _QC_TOTAL_COUNTS_LIMITS,
@@ -379,8 +476,12 @@ def load_kamath(
     """
     Load and merge Kamath cell-type H5AD files into (preQC, postQC).
 
-    Each file is downsampled BEFORE QC (DA neurons kept in full; other
-    cell types capped to `n_non_da_per_type`), then QC'd and concatenated.
+    Default mode: each file is downsampled BEFORE QC (DA neurons kept in full;
+    other cell types capped to `n_non_da_per_type`), then QC'd and concatenated.
+
+    When `all_random=True`: all non-excluded files are loaded in full in backed mode,
+    concatenated, randomly subsampled to `n_total` cells (BEFORE QC), then QC'd once 
+    on the small pool. `n_non_da_per_type` is ignored.
 
     Both Nurr1-sorted files must be in `exclude_files` — barcode overlap
     confirmed their cells already appear in the 7 cell-type files (see
@@ -396,7 +497,12 @@ def load_kamath(
         obs column with fine-grained DA subtype labels.
     n_non_da_per_type : int
         Max cells per non-DA file (0 = no subsampling). DA neurons file
-        always kept in full.
+        always kept in full. Ignored when `all_random=True`.
+    all_random : bool
+        If True, pool all non-excluded files and draw `n_total` cells at random
+        (no per-file cap, no DA-first priority). `n_total` must be > 0.
+    n_total : int
+        Total cells to draw when `all_random=True`. Must be > 0 in that mode.
 
     Returns
     -------
@@ -411,96 +517,127 @@ def load_kamath(
         )
 
     exclude_basenames = {os.path.basename(f) for f in exclude_files}
-    tmp_dir = tempfile.mkdtemp(prefix="kamath_qc_")
-    tmp_paths_preqc = []
-    tmp_paths_postqc = []
 
-    for path in paths:
-        basename = os.path.basename(path)
+    def _valid_paths() -> list[tuple[str, str]]:
+        return [
+            (p, os.path.basename(p)) for p in paths
+            if os.path.basename(p) not in exclude_basenames
+            and not os.path.basename(p).startswith("kamath_merged")
+        ]
 
-        if basename in exclude_basenames:
-            print(f"  Skipping (excluded): {basename}")
-            continue
-        if basename.startswith("kamath_merged"):
-            print(f"  Skipping (aggregate cache): {basename}")
-            continue
+    if all_random:
+        # ── Step 1: backed obs scan — collect (path, basename, n_obs) ──────────
+        valid = []
+        for path, basename in _valid_paths():
+            backed = sc.read_h5ad(path, backed="r")
+            n = backed.n_obs
+            backed.file.close()
+            valid.append((path, basename, n))
+            print(f"  Backed scan: {basename} ({n:,} cells)")
 
-        print(f"  Loading: {basename}")
-        adata = sc.read_h5ad(path)
+        if not valid:
+            raise RuntimeError("No Kamath files found after exclusions.")
 
-        adata.layers["counts"] = extract_raw_counts(adata)
+        # ── Step 2: sample n_total flat indices across the concatenated pool ───
+        total_available = sum(n for _, _, n in valid)
+        n_draw = min(n_total, total_available)
+        print(f"  Global pool: {total_available:,} cells → sampling {n_draw:,}")
+        rng = np.random.default_rng(0)
+        flat_idx = np.sort(rng.choice(total_available, size=n_draw, replace=False))
 
-        adata.obs["source"] = "kamath"
-        if "donor_id" not in adata.obs.columns:
-            raise KeyError(f"'donor_id' column not found in {basename}.")
-        adata.obs["batch"] = "kamath_" + adata.obs["donor_id"].astype(str)
+        # Map flat indices back to per-file integer row positions.
+        indices_by_path: dict[str, tuple[str, np.ndarray]] = {}
+        offset = 0
+        for path, basename, n in valid:
+            in_file = flat_idx[(flat_idx >= offset) & (flat_idx < offset + n)] - offset
+            if len(in_file) > 0:
+                indices_by_path[path] = (basename, in_file)
+            offset += n
 
-        # cell_type_scanvi: fine-grained author column when available, else CL label.
-        if da_subtype_column in adata.obs.columns:
-            adata.obs["cell_type_scanvi"] = adata.obs[da_subtype_column].astype(str)
-        else:
-            adata.obs["cell_type_scanvi"] = adata.obs["cell_type"].astype(str)
+        # ── Step 3: load only sampled rows from each file ─────────────────────
+        subsets = []
+        for path, (basename, file_idx) in indices_by_path.items():
+            print(f"  Loading {len(file_idx):,} sampled cells from: {basename}")
+            backed = sc.read_h5ad(path, backed="r")
+            chunk = backed[np.sort(file_idx)].to_memory()
+            backed.file.close()
+            _annotate_kamath_obs(chunk, basename, da_subtype_column)
+            print(f"    cell types: {sorted(chunk.obs['cell_type_scanvi'].unique())}")
+            subsets.append(chunk)
+            del chunk
 
-        is_da = adata.obs["cell_type"].str.lower().str.contains("dopaminergic")
-        if da_subtype_column in adata.obs.columns and is_da.any():
-            adata.obs["da_subtype"] = adata.obs[da_subtype_column].where(is_da, other=np.nan)
-        else:
-            adata.obs["da_subtype"] = np.nan
-
-        if "disease" not in adata.obs.columns:
-            raise KeyError(f"'disease' column not found in {basename}.")
-        adata.obs["condition_id"] = _harmonize_cellxgene_disease(adata.obs["disease"])
-
-        print(
-            f"    {adata.n_obs:,} cells | "
-            f"cell types: {sorted(adata.obs['cell_type_scanvi'].unique())}"
-        )
-
-        # "da_neurons" is a substring of "non_da_neurons" — match the exact filename.
-        is_da_file = basename == "human_da_neurons_10x_scrna_seq.h5ad"
-        if is_da_file:
-            print(f"    DA neurons file — keeping all {adata.n_obs:,} cells")
-        elif n_non_da_per_type > 0:
-            adata = subsample_adata(adata, n_non_da_per_type, f"Kamath non-DA ({basename})")
-
-        # Write preQC immediately then QC and write postQC, dropping each file
-        # from memory before the next (scrublet is the memory-hungry step).
-        preqc_path = os.path.join(tmp_dir, f"preQC_{basename}")
-        adata.write_h5ad(preqc_path)
-        tmp_paths_preqc.append(preqc_path)
-
-        adata = _apply_qc_filters(
-            adata, basename,
+        # ── Step 4: concat the small subsets, then QC once ───────────────────
+        kamath_preqc = ad.concat(subsets, join="inner")
+        del subsets
+        kamath_preqc.obs["original_barcode"] = kamath_preqc.obs_names.astype(str)
+        kamath_preqc.obs_names = "kamath_" + kamath_preqc.obs_names.astype(str)
+        kamath_postqc = _apply_qc_filters(
+            kamath_preqc, "Kamath all random",
             pct_counts_mt_max=qc_pct_counts_mt_max, doublet_score_max=qc_doublet_score_max,
             total_counts_limits=qc_total_counts_limits, n_genes_limits=qc_n_genes_limits,
             doublet_batch_key="donor_id",
         )
-        postqc_path = os.path.join(tmp_dir, f"postQC_{basename}")
-        adata.write_h5ad(postqc_path)
-        tmp_paths_postqc.append(postqc_path)
-        del adata
+        _log_qc_pair("Kamath", kamath_preqc, kamath_postqc)
+        tag = str(n_total)
 
-    if not tmp_paths_preqc:
-        raise RuntimeError("No Kamath files were loaded. Check directory and exclude list.")
+    else:
+        # ── Default mode: per-file subsample + QC, temp files keep peak RAM low ─
+        # "da_neurons" is a substring of "non_da_neurons" — match exact filename.
+        tmp_dir = tempfile.mkdtemp(prefix="kamath_qc_")
+        tmp_paths_preqc: list[str] = []
+        tmp_paths_postqc: list[str] = []
 
-    print(f"  Concatenating {len(tmp_paths_preqc)} Kamath files (preQC)")
-    kamath_preqc = ad.concat((sc.read_h5ad(p) for p in tmp_paths_preqc), join="inner")
-    kamath_preqc.obs["original_barcode"] = kamath_preqc.obs_names.astype(str)
-    kamath_preqc.obs_names = "kamath_" + kamath_preqc.obs_names.astype(str)
-    print(f"  Kamath preQC total: {kamath_preqc.n_obs:,} cells, {kamath_preqc.n_vars:,} genes")
+        for path, basename in _valid_paths():
+            print(f"  Loading: {basename}")
+            adata = sc.read_h5ad(path)
+            _annotate_kamath_obs(adata, basename, da_subtype_column)
+            print(
+                f"    {adata.n_obs:,} cells | "
+                f"cell types: {sorted(adata.obs['cell_type_scanvi'].unique())}"
+            )
 
-    print(f"  Concatenating {len(tmp_paths_postqc)} Kamath files (postQC)")
-    kamath_postqc = ad.concat((sc.read_h5ad(p) for p in tmp_paths_postqc), join="inner")
-    kamath_postqc.obs["original_barcode"] = kamath_postqc.obs_names.astype(str)
-    kamath_postqc.obs_names = "kamath_" + kamath_postqc.obs_names.astype(str)
-    print(f"  Kamath postQC total: {kamath_postqc.n_obs:,} cells, {kamath_postqc.n_vars:,} genes")
+            preqc_path = os.path.join(tmp_dir, f"preQC_{basename}")
+            adata.write_h5ad(preqc_path)
+            tmp_paths_preqc.append(preqc_path)
 
-    for p in tmp_paths_preqc + tmp_paths_postqc:
-        os.remove(p)
-    os.rmdir(tmp_dir)
+            is_da_file = basename == "human_da_neurons_10x_scrna_seq.h5ad"
+            if is_da_file:
+                print(f"    DA neurons file — keeping all {adata.n_obs:,} cells")
+            elif n_non_da_per_type > 0:
+                adata = subsample_adata(adata, n_non_da_per_type, f"Kamath non-DA ({basename})")
 
-    kamath_anchor = os.path.join(kamath_h5ad_dir, "intermediate", "kamath_merged_da_all_non_da")
-    _write_qc_summary(_qc_summary_path(kamath_anchor, str(n_non_da_per_type)))
+            adata = _apply_qc_filters(
+                adata, basename,
+                pct_counts_mt_max=qc_pct_counts_mt_max, doublet_score_max=qc_doublet_score_max,
+                total_counts_limits=qc_total_counts_limits, n_genes_limits=qc_n_genes_limits,
+                doublet_batch_key="donor_id",
+            )
+            postqc_path = os.path.join(tmp_dir, f"postQC_{basename}")
+            adata.write_h5ad(postqc_path)
+            tmp_paths_postqc.append(postqc_path)
+            del adata
+
+        if not tmp_paths_preqc:
+            raise RuntimeError("No Kamath files were loaded. Check directory and exclude list.")
+
+        print(f"  Concatenating {len(tmp_paths_preqc)} Kamath files (preQC)")
+        kamath_preqc = ad.concat((sc.read_h5ad(p) for p in tmp_paths_preqc), join="inner")
+        kamath_preqc.obs["original_barcode"] = kamath_preqc.obs_names.astype(str)
+        kamath_preqc.obs_names = "kamath_" + kamath_preqc.obs_names.astype(str)
+        print(f"  Concatenating {len(tmp_paths_postqc)} Kamath files (postQC)")
+        kamath_postqc = ad.concat((sc.read_h5ad(p) for p in tmp_paths_postqc), join="inner")
+        kamath_postqc.obs["original_barcode"] = kamath_postqc.obs_names.astype(str)
+        kamath_postqc.obs_names = "kamath_" + kamath_postqc.obs_names.astype(str)
+        _log_qc_pair("Kamath", kamath_preqc, kamath_postqc)
+
+        for p in tmp_paths_preqc + tmp_paths_postqc:
+            os.remove(p)
+        os.rmdir(tmp_dir)
+        tag = str(n_non_da_per_type)
+
+    anchor_name = "kamath_merged_all_rand" if all_random else "kamath_merged_da_all_non_da"
+    kamath_anchor = os.path.join(kamath_h5ad_dir, "intermediate", anchor_name)
+    _write_qc_summary(_qc_summary_path(kamath_anchor, tag))
 
     return kamath_preqc, kamath_postqc
 
@@ -520,10 +657,11 @@ def load_menon_sn(
     'menon_author_cell_type'); cell_type_scanvi is 'Unknown' so scANVI label
     transfer runs from Kamath to Menon.
 
-    Opened in backed mode so only obs loads into RAM; the count matrix is
-    read from disk only for the SN-filtered subset. Downsampled to `n_cells`
-    BEFORE QC. When `use_cached=True` and both caches exist, loads them
-    directly, skipping the 4.5M-cell read.
+    Opened in backed mode so only obs loads into RAM. The SN filter and
+    the `n_cells` downsample are both applied to the barcode index while
+    still backed, so `.to_memory()` loads only the target rows — peak RAM
+    is `n_cells` rather than all SN cells. When `use_cached=True` and both
+    caches exist, loads them directly, skipping the 4.5M-cell read.
 
     Parameters
     ----------
@@ -549,12 +687,9 @@ def load_menon_sn(
     tag = f"rand_{n_cells}" if n_cells > 0 else "all"
     preqc_cache, postqc_cache = _qc_cache_paths(_sn_cache_path(menon_h5ad), tag)
     if use_cached and os.path.exists(preqc_cache) and os.path.exists(postqc_cache):
-        print(f"  Loading cached Menon preQC/postQC ({tag})")
         menon_preqc = sc.read_h5ad(preqc_cache)
         menon_postqc = sc.read_h5ad(postqc_cache)
-        print(f"  Loaded cached: preQC {menon_preqc.n_obs:,} / postQC {menon_postqc.n_obs:,} cells")
-        print(menon_preqc.obs.head())
-        print(menon_postqc.obs.head())
+        _log_cached_qc("Menon", tag, menon_preqc, menon_postqc)
         return menon_preqc, menon_postqc
 
     print(f"  Loading Menon H5AD in backed mode (obs only, matrix stays on disk): {menon_h5ad}")
@@ -576,8 +711,16 @@ def load_menon_sn(
             f"No substantia nigra cells found using column '{tissue_col}'. "
             f"Available values: {available}"
         )
-    menon = menon[sn_mask].to_memory()
-    print(f"  After SN filter (loaded into memory): {menon.n_obs:,} cells")
+    # Sample barcodes while still backed (X stays on disk).
+    # Combining the SN filter and the downsample here means .to_memory() loads
+    # only the target rows — peak RAM is n_cells rather than all SN cells.
+    sn_idx = np.where(sn_mask)[0]
+    print(f"  SN barcodes (backed): {len(sn_idx):,}")
+    if n_cells > 0 and n_cells < len(sn_idx):
+        sn_idx = np.sort(np.random.default_rng(0).choice(sn_idx, size=n_cells, replace=False))
+        print(f"  Sampled {len(sn_idx):,} barcodes before to_memory()")
+    menon = menon[sn_idx].to_memory()
+    print(f"  Loaded into memory: {menon.n_obs:,} cells")
 
     menon.layers["counts"] = extract_raw_counts(menon)
 
@@ -612,13 +755,8 @@ def load_menon_sn(
     menon.obs["cell_type_scanvi"] = "Unknown"
     menon.obs["da_subtype"] = np.nan
 
-    if n_cells > 0:
-        print(f"\n=== Downsampling Menon SN to {n_cells:,} cells (before QC) ===")
-        menon = subsample_adata(menon, n_cells, "Menon SN")
-
     menon.obs["original_barcode"] = menon.obs_names.astype(str)
     menon.obs_names = "menon_" + menon.obs_names.astype(str)
-
     print(f"  Writing Menon preQC cache → {preqc_cache}")
     _write_h5ad_cache(menon, preqc_cache)
 
@@ -630,6 +768,7 @@ def load_menon_sn(
         total_counts_limits=qc_total_counts_limits, n_genes_limits=qc_n_genes_limits,
         doublet_batch_key="donor_id",
     )
+    _log_qc_pair("Menon", menon, menon_postqc)
     print(f"  Writing Menon postQC cache → {postqc_cache}")
     _write_h5ad_cache(menon_postqc, postqc_cache)
 
@@ -806,7 +945,7 @@ def load_siletti(
         os.remove(p)
     os.rmdir(tmp_dir)
 
-    def _finalize_siletti_obs(siletti: ad.AnnData, tag: str) -> None:
+    def _finalize_siletti_obs(siletti: ad.AnnData) -> None:
         """Set source/batch/native-label/condition_id/scANVI obs columns in place."""
         siletti.obs["source"] = "siletti"
         if "sample_id" not in siletti.obs.columns:
@@ -838,11 +977,13 @@ def load_siletti(
 
         siletti.obs["original_barcode"] = siletti.obs_names.astype(str)
         siletti.obs_names = "siletti_" + siletti.obs_names.astype(str)
-        n_da = int(siletti.obs["siletti_allen_da_vglut2"].sum())
-        print(f"  Siletti {tag} total: {siletti.n_obs:,} cells, {siletti.n_vars:,} genes ({n_da} DA VGLUT2)")
 
-    _finalize_siletti_obs(siletti_preqc, "preQC")
-    _finalize_siletti_obs(siletti_postqc, "postQC")
+    _finalize_siletti_obs(siletti_preqc)
+    _finalize_siletti_obs(siletti_postqc)
+    n_da_pre  = int(siletti_preqc.obs["siletti_allen_da_vglut2"].sum())
+    n_da_post = int(siletti_postqc.obs["siletti_allen_da_vglut2"].sum())
+    _log_qc_pair("Siletti", siletti_preqc, siletti_postqc,
+                 f"{n_da_pre} DA VGLUT2", f"{n_da_post} DA VGLUT2")
 
     siletti_anchor = os.path.join(
         siletti_dir, "intermediate", f"midbrain_da_neurons{neuron_target}_cells{cell_target}",
@@ -981,12 +1122,9 @@ def load_asap_cohort(
     tag = f"rand_{n_cells}" if n_cells > 0 else "all"
     preqc_cache, postqc_cache = _qc_cache_paths(asap_h5ad, tag)
     if use_cached and os.path.exists(preqc_cache) and os.path.exists(postqc_cache):
-        print(f"  Loading cached ASAP preQC/postQC ({tag})")
         asap_preqc = sc.read_h5ad(preqc_cache)
         asap_postqc = sc.read_h5ad(postqc_cache)
-        print(f"  Loaded cached: preQC {asap_preqc.n_obs:,} / postQC {asap_postqc.n_obs:,} cells")
-        print(asap_preqc.obs.head())
-        print(asap_postqc.obs.head())
+        _log_cached_qc("ASAP", tag, asap_preqc, asap_postqc)
         return asap_preqc, asap_postqc
 
     print(f"  Opening H5AD in backed mode: {asap_h5ad}")
@@ -1112,8 +1250,6 @@ def load_asap_cohort(
             asap_postqc = subsample_adata(qc_survivors, main_quota, "ASAP postQC (QC survivors, trimmed to quota)")
         else:
             asap_postqc = qc_survivors
-        print(f"  ASAP postQC (QC survivors only, no reintroduction): {asap_postqc.n_obs:,} cells")
-
         counts = asap.layers["counts"]
         total_counts = np.asarray(counts.sum(axis=1)).ravel()
         n_genes_arr = np.asarray((counts > 0).sum(axis=1)).ravel()
@@ -1153,12 +1289,15 @@ def load_asap_cohort(
               f"{len(candidate_idx):,} eligible)")
 
         asap_preqc = ad.concat([asap_postqc, reintroduced], join="inner")
-        print(f"  ASAP preQC (postQC + reintroduced doublets): {asap_preqc.n_obs:,} cells")
+        _log_qc_pair("ASAP", asap_preqc, asap_postqc,
+                     f"postQC + {reintroduced.n_obs:,} doublet-only cells reintroduced",
+                     "QC survivors")
     else:
         # No downsampling: no oversample/reintroduce quotas, fall back to
         # the plain preQC (full pool) >= postQC (survivors) relationship.
         asap_preqc = asap
         asap_postqc = qc_survivors
+        _log_qc_pair("ASAP", asap_preqc, asap_postqc, postqc_note="QC survivors")
 
     print(f"  Writing ASAP preQC cache → {preqc_cache}")
     _write_h5ad_cache(asap_preqc, preqc_cache)
@@ -1182,21 +1321,45 @@ def main(args: argparse.Namespace) -> None:
     kamath_dir = os.path.join(_REFERENCE_DATA_DIR, "kamath")
     menon_dir = os.path.join(_REFERENCE_DATA_DIR, "menon")
     siletti_dir = os.path.join(_REFERENCE_DATA_DIR, "siletti")
+
     menon_path = _find_menon_h5ad(menon_dir)
+
+    kamath_input_paths = sorted(
+        p for p in glob.glob(os.path.join(kamath_dir, "*.h5ad"))
+        if not os.path.basename(p).startswith("kamath_merged")
+    )
+    for p in kamath_input_paths:
+        _log_input_file(p)
+
+    for file_stem in _SILETTI_MIDBRAIN_REGIONS.values():
+        _log_input_file(os.path.join(siletti_dir, f"{file_stem}.h5ad"))
+    _log_input_file(os.path.join(siletti_dir, f"{_SILETTI_ALL_NEURONS_FILE}.h5ad"))
+
+    _log_input_file(_ASAP_H5AD_PATH)
 
     exclude = [f.strip() for f in args.exclude_kamath_files.split(",") if f.strip()]
 
     print("\n=== Loading Kamath datasets ===")
-    kamath_anchor = os.path.join(kamath_dir, "intermediate", "kamath_merged_da_all_non_da")
-    kamath_preqc_cache, kamath_postqc_cache = _qc_cache_paths(kamath_anchor, str(args.kamath_non_da_per_type))
+    if args.kamath_all_random and args.downsample_kamath is None:
+        parser.error("--downsample-kamath is required when --kamath-all-random is set.")
+    if not args.kamath_all_random and args.downsample_kamath is not None:
+        parser.error("--downsample-kamath is only valid when --kamath-all-random is set.")
+
+    kamath_anchor_name = "kamath_merged_all_rand" if args.kamath_all_random else "kamath_merged_da_all_non_da"
+    kamath_anchor = os.path.join(kamath_dir, "intermediate", kamath_anchor_name)
+    kamath_tag = str(args.downsample_kamath) if args.kamath_all_random else str(args.kamath_non_da_per_type)
+    kamath_preqc_cache, kamath_postqc_cache = _qc_cache_paths(kamath_anchor, kamath_tag)
     if args.use_cached_intermediate_h5ad and os.path.exists(kamath_preqc_cache) and os.path.exists(kamath_postqc_cache):
-        print(f"  Cached Kamath preQC/postQC already exist, skipping — {kamath_preqc_cache}")
-        print(sc.read_h5ad(kamath_preqc_cache, backed="r").obs.head())
-        print(sc.read_h5ad(kamath_postqc_cache, backed="r").obs.head())
+        _kp = sc.read_h5ad(kamath_preqc_cache, backed="r")
+        _kq = sc.read_h5ad(kamath_postqc_cache, backed="r")
+        _log_cached_qc("Kamath", kamath_tag, _kp, _kq)
+        _kp.file.close(); _kq.file.close()
     else:
         kamath_preqc, kamath_postqc = load_kamath(
             kamath_dir, exclude, args.da_subtype_column,
             n_non_da_per_type=args.kamath_non_da_per_type,
+            all_random=args.kamath_all_random,
+            n_total=args.downsample_kamath or 0,
             qc_pct_counts_mt_max=args.qc_pct_counts_mt_max,
             qc_doublet_score_max=args.qc_doublet_score_max,
             qc_total_counts_limits=tuple(args.qc_total_counts_limits),
@@ -1226,9 +1389,10 @@ def main(args: argparse.Namespace) -> None:
     )
     siletti_preqc_cache, siletti_postqc_cache = _qc_cache_paths(siletti_anchor, "")
     if args.use_cached_intermediate_h5ad and os.path.exists(siletti_preqc_cache) and os.path.exists(siletti_postqc_cache):
-        print(f"  Cached Siletti preQC/postQC already exist, skipping — {siletti_preqc_cache}")
-        print(sc.read_h5ad(siletti_preqc_cache, backed="r").obs.head())
-        print(sc.read_h5ad(siletti_postqc_cache, backed="r").obs.head())
+        _sp = sc.read_h5ad(siletti_preqc_cache, backed="r")
+        _sq = sc.read_h5ad(siletti_postqc_cache, backed="r")
+        _log_cached_qc("Siletti", f"scale_{args.siletti_scale}", _sp, _sq)
+        _sp.file.close(); _sq.file.close()
     else:
         allen_annotations = _load_allen_annotations()
         neuron_barcodes = _load_all_neuron_barcodes(siletti_dir)
@@ -1262,9 +1426,9 @@ def main(args: argparse.Namespace) -> None:
         "qc_summary.tsv, next to its caches) are ready under each source's "
         "intermediate/ directory. Run "
         "integrate_kamath_menon_siletti_asap.py next, with the SAME "
-        "--kamath-non-da-per-type / --downsample-menon / --siletti-scale / "
-        "--downsample-asap-cohort values, to locate them and train the "
-        "scVI/scANVI reference."
+        "--kamath-non-da-per-type / --kamath-all-random / --downsample-menon / "
+        "--siletti-scale / --downsample-asap-cohort values, to locate them and "
+        "train the scVI/scANVI reference."
     )
 
 
@@ -1305,7 +1469,26 @@ if __name__ == "__main__":
         default=_DEFAULT_KAMATH_NON_DA_PER_TYPE,
         help="Cells to retain from each non-DA Kamath cell-type file, downsampled\n"
              "BEFORE that file's own QC pass. DA neurons file always kept in full.\n"
+             "Ignored when --kamath-all-random is set.\n"
              f"[Default: {_DEFAULT_KAMATH_NON_DA_PER_TYPE}]",
+    )
+    parser.add_argument(
+        "--kamath-all-random",
+        action=argparse.BooleanOptionalAction,
+        default=False,
+        help="Pool all non-excluded Kamath files and draw --downsample-kamath\n"
+             "cells at random (no per-file cap, no DA-first priority).\n"
+             "Requires --downsample-kamath. Incompatible without it.\n"
+             "[Default: False]",
+    )
+    parser.add_argument(
+        "--downsample-kamath",
+        type=int,
+        default=None,
+        help="Total cells to draw when --kamath-all-random is True. The global\n"
+             "random draw happens BEFORE QC. Required when --kamath-all-random\n"
+             "is set; incompatible when it is not.\n"
+             "[Default: None]",
     )
     parser.add_argument(
         "--downsample-menon",
