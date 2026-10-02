@@ -190,7 +190,7 @@ task cell2location_visium {
 		gpuType: "nvidia-tesla-t4"
 		gpuCount: 1
 		nvidiaDriverVersion: "545.23.08" #!UnknownRuntimeKey
-		preemptible: 1
+		preemptible: 3
 		zones: zones
 	}
 }
