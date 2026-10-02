@@ -11,8 +11,9 @@ This is a one-time analysis, not part of the spatial deconvolution WDL pipeline.
 Relationship to other scripts:
 - Run integrate_kamath_menon_siletti_asap.py after downsample_kamath_menon_siletti_asap.py
   with the same values for the following parameters:
-  --kamath-non-da-per-type, --downsample-menon, --siletti-scale and --downsample-asap-cohort
-  so integrate_kamath_menon_siletti_asap.py finds the right cached files.
+  --kamath-non-da-per-type (or --kamath-all-random --downsample-kamath), --downsample-menon,
+  --siletti-scale and --downsample-asap-cohort so integrate_kamath_menon_siletti_asap.py
+  finds the right cached files.
   These downsample_* and integrate_* scripts were split to:
   a) control the type of machine needed CPU (cheaper) vs. GPU (expensive)
   b) cache intermediate files to restart the run if needed
@@ -464,8 +465,8 @@ def _require_cache(path: str) -> None:
         raise FileNotFoundError(
             f"Required cache not found: {path}\n"
             "Run downsample_kamath_menon_siletti_asap.py first, with the "
-            "same --kamath-non-da-per-type / --downsample-menon / "
-            "--siletti-scale / --downsample-asap-cohort values."
+            "same --kamath-non-da-per-type (or --kamath-all-random --downsample-kamath) / "
+            "--downsample-menon / --siletti-scale / --downsample-asap-cohort values."
         )
 
 
@@ -474,6 +475,11 @@ def main(args: argparse.Namespace) -> None:
     os.makedirs(args.output_dir, exist_ok=True)
     scvi.settings.seed = 42
     t_start = time.monotonic()
+
+    if args.kamath_all_random and args.downsample_kamath is None:
+        parser.error("--downsample-kamath is required when --kamath-all-random is set.")
+    if not args.kamath_all_random and args.downsample_kamath is not None:
+        parser.error("--downsample-kamath is only valid when --kamath-all-random is set.")
 
     print("\n=== Locating cached preQC/postQC intermediate files ===")
     kamath_dir = os.path.join(_REFERENCE_DATA_DIR, "kamath")
@@ -484,8 +490,13 @@ def main(args: argparse.Namespace) -> None:
     qc_label = "postQC" if args.use_qc_filtered else "preQC"
     print(f"  --use-qc-filtered={args.use_qc_filtered} -> using {qc_label} pools for all four sources")
 
-    kamath_anchor = os.path.join(kamath_dir, "intermediate", "kamath_merged_da_all_non_da")
-    kamath_preqc_cache, kamath_postqc_cache = _qc_cache_paths(kamath_anchor, str(args.kamath_non_da_per_type))
+    if args.kamath_all_random:
+        kamath_anchor = os.path.join(kamath_dir, "intermediate", "kamath_merged_all_rand")
+        kamath_tag = str(args.downsample_kamath)
+    else:
+        kamath_anchor = os.path.join(kamath_dir, "intermediate", "kamath_merged_da_all_non_da")
+        kamath_tag = str(args.kamath_non_da_per_type)
+    kamath_preqc_cache, kamath_postqc_cache = _qc_cache_paths(kamath_anchor, kamath_tag)
     kamath_cache = kamath_postqc_cache if args.use_qc_filtered else kamath_preqc_cache
     _require_cache(kamath_cache)
     kamath = sc.read_h5ad(kamath_cache)
@@ -795,8 +806,26 @@ if __name__ == "__main__":
         default=_DEFAULT_KAMATH_NON_DA_PER_TYPE,
         help="Must match the value passed to downsample_kamath_menon_siletti_asap.py\n"
              "-- used only to reconstruct the matching Kamath cache filename,\n"
-             "not to re-downsample.\n"
+             "not to re-downsample. Ignored when --kamath-all-random is set.\n"
              f"[Default: {_DEFAULT_KAMATH_NON_DA_PER_TYPE}]",
+    )
+    parser.add_argument(
+        "--kamath-all-random",
+        action=argparse.BooleanOptionalAction,
+        default=False,
+        help="Load the all-random Kamath pool (kamath_merged_all_rand_N) produced\n"
+             "by downsample_kamath_menon_siletti_asap.py --kamath-all-random.\n"
+             "Requires --downsample-kamath. Incompatible without it.\n"
+             "[Default: False]",
+    )
+    parser.add_argument(
+        "--downsample-kamath",
+        type=int,
+        default=None,
+        help="Must match --downsample-kamath passed to downsample_kamath_menon_siletti_asap.py\n"
+             "-- used only to reconstruct the matching Kamath cache filename,\n"
+             "not to re-downsample. Required when --kamath-all-random is set.\n"
+             "[Default: None]",
     )
     parser.add_argument(
         "--downsample-menon",
