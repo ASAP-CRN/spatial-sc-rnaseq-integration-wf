@@ -111,7 +111,7 @@ workflow integration {
 		# Outputs
 		visium_deconvoluted_adata_objects:  {help: "Cell2location deconvoluted AnnData objects (.h5ad), one per Visium sample"}
 		visium_deconvolution_metadata_csvs: {help: "Per-spot deconvolution metadata CSV (cell type fractions + Leiden clusters), one per Visium sample"}
-		visium_inf_aver_csv_gzs:            {help: "Cell2location reference signatures (inf_aver.csv.gz), one per sample that ran Stage 1; empty array per sample when pre-computed model was supplied"}
+		visium_inf_aver_csv_gzs:            {help: "Cell2location reference signatures (<ref_stem>_inf_aver.csv.gz), one per sample that ran Stage 1; empty array per sample when pre-computed model was supplied"}
 	}
 }
 
@@ -178,7 +178,7 @@ task cell2location_visium {
 		File  deconvoluted_adata_object  = "~{sample_id}.deconvoluted.h5ad"
 		File  deconvolution_metadata_csv = "~{sample_id}.deconvolution_metadata.csv"
 		# Non-empty only when Stage 1 ran (sc_rnaseq_reference_adata provided); empty in Mode B.
-		Array[File] inf_aver_csv_gz      = glob("inf_aver.csv.gz")
+		Array[File] inf_aver_csv_gz      = glob("*_inf_aver.csv.gz")
 	}
 
 	runtime {

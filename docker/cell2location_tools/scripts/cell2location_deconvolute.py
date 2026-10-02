@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
-Deconvolute one spatial transcriptomics sample using Cell2location (Visium)
-against an scRNA-seq cohort reference.
+Deconvolute one spatial transcriptomics sample using Cell2location against an scRNA-seq reference.
+Only Visium is supported in this version.
 
 Steps
 -----
@@ -9,12 +9,25 @@ Steps
 2. Map cell types onto spatial spots using Cell2location.
 3. (Optional) Cluster spots by cell type abundance using Leiden.
 
+Inputs
+------
+--sample-id                               Spatial sample identifier.
+--spatial-h5ad                            Per-sample Visium adata path (raw UMI counts, post-QC from `spatial-transcriptomics-wf`).
+--sc-rnaseq-reference-adata               scRNA-seq reference h5ad; trains Stage 1 NB regression.
+--sc-rnaseq-reference-cell2location-model Pre-computed inf_aver.csv.gz; skips Stage 1.
+
 Outputs
 -------
-{sample_id}.integrated.h5ad
+{sample_id}.deconvoluted.h5ad
     Spatial AnnData with Cell2location results in .obsm and per-spot fraction in .obs.
-{sample_id}.integration_metadata.csv
+{sample_id}.deconvolution_metadata.csv
     Per-spot table: cell type fractions + obs columns for downstream reporting.
+{ref_stem}_inf_aver.csv.gz
+    Reference signatures (genes × cell types); only written when --sc-rnaseq-reference-adata
+    is provided. {ref_stem} is the stem of the reference h5ad filename.
+stage1_ref_training_history.png / stage2_spatial_training_history.png
+    ELBO training-loss curves for each stage, for convergence inspection.
+    Stage 1 only written when --sc-rnaseq-reference-adata is provided.
 
 Usage (dry-run)
 ---------------
@@ -22,7 +35,6 @@ cell2location_deconvolute \\
     --sample-id SAMPLE001 \\
     --spatial-h5ad sample.qc.h5ad \\
     --sc-rnaseq-reference-adata final_all_genes.h5ad \\
-    --sc-rnaseq-cell-types-parquet scanvi_cell_types.parquet \\
     --spatial-technology visium \\
     --output-dir results/
 
@@ -33,14 +45,21 @@ cell2location_deconvolute ... --promote
 
 import argparse
 import os
+import shutil
+import subprocess
 import sys
 import time
 from pathlib import Path
 
+import cell2location
+import matplotlib
+matplotlib.use("Agg")
+import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 import anndata as ad
 import scanpy as sc
+from cell2location.models import Cell2location, RegressionModel
 from scipy.sparse import issparse
 
 repo_root = next(p for p in Path(__file__).resolve().parents if (p / ".git").exists())
@@ -68,18 +87,94 @@ _TRAIN_SIZE      = 1        # training batch size for spatial model. Tutorial re
 
 _ACCELERATOR     = get_accelerator()  # auto-selects: "gpu" (CUDA) > "mps" (Apple Silicon) > "cpu"
 
+_EXPORT_POSTERIOR_SUBPROCESS_SCRIPT = Path(__file__).resolve().parent / "_export_posterior_subprocess.py"
 
-def _load_reference(ref_h5ad: str, cell_type_key: str) -> ad.AnnData:
+
+def _run_export_posterior_subprocess(
+    model,
+    model_class: str,
+    ckpt_dir: str,
+    export_h5ad: str,
+    num_samples: int,
+    batch_size: int,
+    keep_checkpoints: bool = False,
+) -> ad.AnnData:
+    """
+    Save `model` checkpoint, run `_export_posterior_subprocess.py` as a child
+    process with `accelerator="cpu"`, and return the resulting AnnData.
+
+    Export runs in a separate process because Pyro's global parameter store
+    retains GPU/MPS tensors from training; reloading the model in the same
+    process does not clear that state and causes intermittent all-NaN posteriors.
+
+    Parameters
+    ----------
+    model : RegressionModel or Cell2location
+        Trained model to checkpoint and export the posterior for.
+    model_class : str
+        "RegressionModel" or "Cell2location" — tells the subprocess which class to load.
+    ckpt_dir : str
+        Directory to write the model checkpoint; removed on success unless `keep_checkpoints`.
+    export_h5ad : str
+        Path where the subprocess writes the posterior-exported AnnData; removed on success unless `keep_checkpoints`.
+    keep_checkpoints : bool
+        If True, skip removal of `ckpt_dir` and `export_h5ad` after reading the result.
+    num_samples : int
+        Posterior samples to draw.
+    batch_size : int
+        Batch size for posterior sampling.
+
+    Returns
+    -------
+    anndata.AnnData
+        AnnData with posterior export results in .varm/.obsm/.uns.
+    """
+    print(f"[INFO] Saving model checkpoint to {ckpt_dir} ...")
+    model.save(ckpt_dir, overwrite=True, save_anndata=True)
+
+    print("[INFO] Exporting posterior in a fresh subprocess ...")
+    subprocess.run(
+        [
+            sys.executable,
+            str(_EXPORT_POSTERIOR_SUBPROCESS_SCRIPT),
+            "--checkpoint-dir", ckpt_dir,
+            "--model-class", model_class,
+            "--output-h5ad", export_h5ad,
+            "--num-samples", str(num_samples),
+            "--batch-size", str(batch_size),
+        ],
+        check=True,
+    )
+    result = ad.read_h5ad(export_h5ad)
+    if not keep_checkpoints:
+        os.remove(export_h5ad)
+        shutil.rmtree(ckpt_dir)
+    return result
+
+
+def _save_training_history_plot(model, output_path: str, title: str) -> None:
+    """Save ELBO training-loss curve to `output_path` as a PNG."""
+    fig, ax = plt.subplots(figsize=(6, 4))
+    model.plot_history(ax=ax)
+    ax.set_title(title)
+    fig.tight_layout()
+    fig.savefig(output_path, dpi=150)
+    plt.close(fig)
+    print(f"[INFO] Wrote training history plot to {output_path}")
+
+
+def _load_reference(ref_h5ad: str, cell_type_key: str, min_cells_per_type: int) -> ad.AnnData:
     """
     Load scRNA-seq reference and validate that cell type labels are present in .obs.
 
     Parameters
     ----------
     ref_h5ad : str
-        Path to all-gene reference h5ad (QC-filtered cells × all genes, raw counts).
-        Must contain `cell_type_key` in .obs.
+        Path to all-gene reference h5ad (QC-filtered, raw counts). Must contain `cell_type_key` in .obs.
     cell_type_key : str
         Column in .obs to use as the cell type label.
+    min_cells_per_type : int
+        Drop cell types with fewer than this many cells (scvi-tools warns below 3).
 
     Returns
     -------
@@ -103,6 +198,14 @@ def _load_reference(ref_h5ad: str, cell_type_key: str) -> ad.AnnData:
         print(f"  [WARN] Dropping {n_missing:,} cells with NaN cell type label.")
         adata = adata[adata.obs["cell_type"].notna()].copy()
 
+    counts = adata.obs["cell_type"].value_counts()
+    sparse_types = counts[counts < min_cells_per_type]
+    if len(sparse_types) > 0:
+        print(f"  [WARN] Dropping {len(sparse_types)} cell type(s) with fewer than "
+              f"{min_cells_per_type} cells: "
+              + ", ".join(f"{t} ({n})" for t, n in sparse_types.items()))
+        adata = adata[~adata.obs["cell_type"].isin(sparse_types.index)].copy()
+
     n_types = adata.obs["cell_type"].nunique()
     print(f"  {adata.n_obs:,} cells retained; {n_types} cell types")
     return adata
@@ -124,9 +227,9 @@ def _patch_sample_id(adata: ad.AnnData, original: str, corrected: str) -> None:
     adata : anndata.AnnData
         AnnData to patch.
     original : str
-        The erroneous sample ID string to replace (e.g. "ASAP_PMBDS_000002_s007_Rep1").
+        Erroneous sample ID to replace.
     corrected : str
-        The canonical sample ID string to substitute (e.g. "ASAP_PMDBS_000002_s007_Rep1").
+        Canonical sample ID to substitute.
 
     Returns
     -------
@@ -156,26 +259,20 @@ def _load_spatial(
     sample_id: str,
 ) -> tuple:
     """
-    Load a Visium spatial h5ad and prepare it for Cell2location.
-
-    If `var["gene_ids"]` is present, var_names are replaced with Ensembl IDs
-    so they intersect with the reference (which uses Ensembl IDs as var_names).
-    Auto-corrects the known ASAP typo PMBDS → PMDBS in .obs string columns.
-    Removes mitochondrial genes and validates raw integer counts.
+    Load a Visium spatial h5ad, swap var_names to Ensembl IDs if available,
+    correct PMBDS → PMDBS typo, remove MT genes, and validate integer counts.
 
     Parameters
     ----------
     spatial_h5ad : str
         Path to per-sample Visium h5ad (raw UMI counts, post-QC).
     sample_id : str
-        Sample identifier; if it starts with "ASAP_PMBDS_" it is corrected to
-        "ASAP_PMDBS_" and obs columns are patched accordingly.
+        Sample identifier; "ASAP_PMBDS_" is auto-corrected to "ASAP_PMDBS_".
 
     Returns
     -------
     tuple
-        (anndata.AnnData, str) — prepared spatial AnnData and the
-        (possibly corrected) canonical sample_id.
+        (anndata.AnnData, str) — prepared spatial AnnData and corrected sample_id.
     """
     corrected_id = _correct_sample_id(sample_id)
 
@@ -215,6 +312,8 @@ def _build_reference_signatures(
     batch_key: str,
     max_epochs: int,
     accelerator: str,
+    output_dir: str,
+    keep_checkpoints: bool = False,
 ) -> pd.DataFrame:
     """
     Train NB regression model to estimate per-cell-type gene expression signatures.
@@ -229,16 +328,14 @@ def _build_reference_signatures(
         Training epochs for the NB regression model.
     accelerator : str
         PyTorch Lightning accelerator ("mps", "gpu", or "cpu").
+    output_dir : str
+        Directory to write Stage 1 checkpoint and posterior-export AnnData.
 
     Returns
     -------
     pandas.DataFrame
-        Estimated signatures (genes × cell types), the `inf_aver` matrix
-        passed to Cell2location.
+        Estimated signatures (genes × cell types) — the `inf_aver` matrix.
     """
-    import cell2location
-    from cell2location.models import RegressionModel
-
     print(f"[INFO] Setting up NB regression model ({adata_ref.n_obs:,} cells)...")
     RegressionModel.setup_anndata(
         adata_ref,
@@ -247,20 +344,34 @@ def _build_reference_signatures(
     )
     ref_model = RegressionModel(adata_ref)
     ref_model.train(max_epochs=max_epochs, accelerator=accelerator)
-
-    print("[INFO] Exporting reference posterior...")
-    adata_ref = ref_model.export_posterior(
-        adata_ref,
-        sample_kwargs={"num_samples": _REF_N_SAMPLES, "batch_size": _REF_BATCH_SIZE},
+    _save_training_history_plot(
+        ref_model,
+        os.path.join(output_dir, "stage1_ref_training_history.png"),
+        "Stage 1: NB regression (reference signatures)",
     )
 
-    # Extract inf_aver: genes × cell types
+    adata_ref = _run_export_posterior_subprocess(
+        ref_model,
+        model_class="RegressionModel",
+        ckpt_dir=os.path.join(output_dir, "stage1_ref_model_checkpoint"),
+        export_h5ad=os.path.join(output_dir, "stage1_ref_posterior_export.h5ad"),
+        num_samples=_REF_N_SAMPLES,
+        batch_size=_REF_BATCH_SIZE,
+        keep_checkpoints=keep_checkpoints,
+    )
+
+    # np.asarray() needed: varm returns a prefixed-column DataFrame; columns= reindexes not relabels.
     factor_names = adata_ref.uns["mod"]["factor_names"]
     inf_aver = pd.DataFrame(
-        adata_ref.varm["means_per_cluster_mu_fg"],
+        np.asarray(adata_ref.varm["means_per_cluster_mu_fg"]),
         index=adata_ref.var_names,
         columns=factor_names,
     )
+    if inf_aver.isna().values.all():
+        raise RuntimeError(
+            "Reference signatures (inf_aver) are entirely NaN after posterior export. "
+            "This indicates a numerical issue in posterior sampling, not a data problem."
+        )
     print(f"  Signatures: {inf_aver.shape[0]:,} genes × {inf_aver.shape[1]} cell types")
     return inf_aver
 
@@ -272,6 +383,8 @@ def _run_cell2location_visium(
     detection_alpha: int,
     max_epochs: int,
     accelerator: str,
+    output_dir: str,
+    keep_checkpoints: bool = False,
 ) -> ad.AnnData:
     """
     Map cell types onto Visium spots using Cell2location.
@@ -290,14 +403,14 @@ def _run_cell2location_visium(
         Training epochs for the Cell2location model.
     accelerator : str
         PyTorch Lightning accelerator ("mps", "gpu", or "cpu").
+    output_dir : str
+        Directory to write Stage 2 checkpoint and posterior-export AnnData.
 
     Returns
     -------
     anndata.AnnData
         Spatial adata with posterior estimates in .obsm.
     """
-    from cell2location.models import Cell2location
-
     # Filter to genes present in both spatial and reference signatures
     shared_genes = adata_spatial.var_names.intersection(inf_aver.index)
     if len(shared_genes) == 0:
@@ -306,7 +419,8 @@ def _run_cell2location_visium(
           f"{len(inf_aver):,} reference")
 
     adata_spatial = adata_spatial[:, shared_genes].copy()
-    inf_aver_filtered = inf_aver.loc[shared_genes]
+    # MPS only supports float32; cast before Cell2location registers cell_state_df as a buffer.
+    inf_aver_filtered = inf_aver.loc[shared_genes].astype(np.float32)
 
     print(f"[INFO] Setting up Cell2location model ({adata_spatial.n_obs:,} spots)...")
     Cell2location.setup_anndata(adata_spatial, batch_key=None)
@@ -322,30 +436,26 @@ def _run_cell2location_visium(
         train_size=_TRAIN_SIZE,
         accelerator=accelerator,
     )
+    _save_training_history_plot(
+        model,
+        os.path.join(output_dir, "stage2_spatial_training_history.png"),
+        "Stage 2: Cell2location (spatial mapping)",
+    )
 
-    print("[INFO] Exporting spatial posterior...")
-    adata_spatial = model.export_posterior(
-        adata_spatial,
-        sample_kwargs={"num_samples": _REF_N_SAMPLES, "batch_size": adata_spatial.n_obs},
+    adata_spatial = _run_export_posterior_subprocess(
+        model,
+        model_class="Cell2location",
+        ckpt_dir=os.path.join(output_dir, "stage2_cell2location_model_checkpoint"),
+        export_h5ad=os.path.join(output_dir, "stage2_spatial_posterior_export.h5ad"),
+        num_samples=_REF_N_SAMPLES,
+        batch_size=adata_spatial.n_obs,
+        keep_checkpoints=keep_checkpoints,
     )
     return adata_spatial
 
 
 def _add_cell_type_fractions(adata_spatial: ad.AnnData) -> None:
-    """
-    Normalise q05 abundance estimates to per-spot cell type fractions and add to .obs.
-
-    Modifies `adata_spatial` in place.
-
-    Parameters
-    ----------
-    adata_spatial : anndata.AnnData
-        Spatial adata after Cell2location posterior export.
-
-    Returns
-    -------
-    None
-    """
+    """Normalise q05 abundances to per-spot cell type fractions; add to .obsm and .obs. In place."""
     abundances = adata_spatial.obsm["q05_cell_abundance_w_sf"]
     fractions  = abundances.div(abundances.sum(axis=1), axis=0)
     fractions.columns = [f"frac_{c}" for c in fractions.columns]
@@ -362,11 +472,7 @@ def _downstream_analysis(
     leiden_res: list,
 ) -> None:
     """
-    PCA → neighbours → UMAP → Leiden clustering on cell type abundance vectors.
-
-    Uses `.obsm["cell_type_fractions"]` as the feature matrix so that spatial
-    domains are defined by cell type composition rather than raw gene expression.
-    Modifies `adata_spatial` in place.
+    PCA → neighbours → UMAP → Leiden on `cell_type_fractions`. Modifies `adata_spatial` in place.
 
     Parameters
     ----------
@@ -377,7 +483,7 @@ def _downstream_analysis(
     n_neighbors : int
         Neighbourhood size for graph construction.
     leiden_res : list
-        Leiden resolutions; one clustering per resolution is added to .obs.
+        Leiden resolutions; one clustering per resolution added to .obs.
 
     Returns
     -------
@@ -397,18 +503,20 @@ def _downstream_analysis(
     adata_spatial.uns["neighbors"]         = adata_tmp.uns["neighbors"]
     for res in leiden_res:
         key = f"leiden_res_{str(res).replace('.', '_')}"
-        sc.tl.leiden(adata_tmp, resolution=res, key_added=key)
+        sc.tl.leiden(adata_tmp, resolution=res, key_added=key,
+                     flavor="igraph", n_iterations=2, directed=False)
         adata_spatial.obs[key] = adata_tmp.obs[key].values
         print(f"  Leiden {res}: {adata_tmp.obs[key].nunique()} clusters")
 
 
-def integrate_visium(
+def deconvolute_visium(
     sample_id: str,
     spatial_h5ad: str,
     ref_h5ad: str | None,
     reference_model: str | None,
     batch_key: str,
     cell_type_key: str,
+    min_cells_per_type: int,
     n_comps: int,
     n_neighbors: int,
     leiden_res: list,
@@ -419,26 +527,27 @@ def integrate_visium(
     accelerator: str,
     output_dir: str,
     promote: bool,
+    keep_checkpoints: bool = False,
 ) -> None:
     """
-    Full Cell2location pipeline for one Visium sample.
+    Full Cell2location deconvolution pipeline for one Visium sample.
 
     Parameters
     ----------
     sample_id : str
         Sample identifier; "ASAP_PMBDS_" is auto-corrected to "ASAP_PMDBS_".
     spatial_h5ad : str
-        Path to per-sample Visium adata (raw UMI counts, post-QC).
+        Per-sample Visium adata path (raw UMI counts, post-QC from `spatial-transcriptomics-wf`).
     ref_h5ad : str or None
-        Path to scRNA-seq reference adata (QC-filtered cells × all genes, raw counts).
-        Must contain `cell_type_key` in .obs. Mutually exclusive with `reference_model`.
+        scRNA-seq reference h5ad. Mutually exclusive with `reference_model`.
     reference_model : str or None
-        Path to a pre-computed `inf_aver.csv.gz` from a previous run. When provided,
-        Stage 1 NB regression is skipped. Mutually exclusive with `ref_h5ad`.
+        Pre-computed `<ref_stem>_inf_aver.csv.gz`; skips Stage 1. Mutually exclusive with `ref_h5ad`.
     batch_key : str
-        Obs column used as batch covariate in the NB regression model.
+        Obs column used as batch covariate in NB regression.
     cell_type_key : str
-        Parquet column to use as the cell type label.
+        Reference .obs column to use as cell type label.
+    min_cells_per_type : int
+        Drop reference cell types with fewer than this many cells before training.
     n_comps : int
         PCA components for downstream clustering.
     n_neighbors : int
@@ -459,6 +568,8 @@ def integrate_visium(
         Directory to write output files.
     promote : bool
         If False, print plan without writing any files.
+    keep_checkpoints : bool
+        If True, retain model checkpoint directories and intermediate posterior h5ad files.
 
     Returns
     -------
@@ -467,7 +578,10 @@ def integrate_visium(
     sample_id = _correct_sample_id(sample_id)
     out_h5ad      = os.path.join(output_dir, f"{sample_id}.deconvoluted.h5ad")
     out_csv       = os.path.join(output_dir, f"{sample_id}.deconvolution_metadata.csv")
-    out_inf_aver  = os.path.join(output_dir, "inf_aver.csv.gz")
+    out_inf_aver  = (
+        os.path.join(output_dir, f"{Path(ref_h5ad).stem}_inf_aver.csv.gz")
+        if ref_h5ad else None
+    )
 
     if not promote:
         print(f"[DRY-RUN] Would write:")
@@ -486,15 +600,15 @@ def integrate_visium(
     # --- Step 1: reference signatures ---
     t0 = time.time()
     if reference_model:
-        print(f"[INFO] Loading pre-computed signatures: {reference_model}")
+        print(f"[INFO] Loading pre-computed scRNA-seq reference signatures: {reference_model}")
         inf_aver = pd.read_csv(reference_model, index_col=0, compression="gzip")
         print(f"  Signatures: {inf_aver.shape[0]:,} genes × {inf_aver.shape[1]} cell types")
         timing.append(("stage1_nb_regression_skipped", time.time() - t0))
     else:
-        adata_ref = _load_reference(ref_h5ad, cell_type_key)
+        adata_ref = _load_reference(ref_h5ad, cell_type_key, min_cells_per_type)
         adata_ref = _filter_mt_genes(adata_ref, "reference")
         _ensure_raw_int_counts(adata_ref, "reference")
-        inf_aver = _build_reference_signatures(adata_ref, batch_key, epochs_ref, accelerator)
+        inf_aver = _build_reference_signatures(adata_ref, batch_key, epochs_ref, accelerator, output_dir, keep_checkpoints)
         del adata_ref
         print(f"[INFO] Writing {out_inf_aver} ...")
         inf_aver.to_csv(out_inf_aver, compression="gzip")
@@ -504,7 +618,7 @@ def integrate_visium(
     t0 = time.time()
     adata_spatial, sample_id = _load_spatial(spatial_h5ad, sample_id)
     adata_spatial = _run_cell2location_visium(
-        adata_spatial, inf_aver, n_cells_per_spot, detection_alpha, epochs_spatial, accelerator
+        adata_spatial, inf_aver, n_cells_per_spot, detection_alpha, epochs_spatial, accelerator, output_dir, keep_checkpoints
     )
     timing.append(("stage2_spatial_mapping", time.time() - t0))
 
@@ -537,7 +651,7 @@ def integrate_visium(
 
 
 def main() -> None:
-    """Parse arguments and dispatch to the appropriate integration function."""
+    """Parse arguments and run deconvolute_visium."""
     args = _parse_args()
 
     ref_adata = args.sc_rnaseq_reference_adata
@@ -555,13 +669,14 @@ def main() -> None:
 
     log_run_command(Path(args.output_dir) / f"{Path(sys.argv[0]).stem}.log")
 
-    integrate_visium(
+    deconvolute_visium(
         sample_id          = args.sample_id,
         spatial_h5ad       = args.spatial_h5ad,
         ref_h5ad           = ref_adata,
         reference_model    = ref_model,
         batch_key          = args.batch_key,
         cell_type_key      = args.cell_type_key,
+        min_cells_per_type = args.min_cells_per_type,
         n_comps            = args.n_comps,
         n_neighbors        = args.n_neighbors,
         leiden_res         = args.leiden_res,
@@ -572,6 +687,7 @@ def main() -> None:
         accelerator        = args.accelerator,
         output_dir         = args.output_dir,
         promote            = args.promote,
+        keep_checkpoints   = args.keep_checkpoints,
     )
 
 
@@ -586,10 +702,10 @@ def _parse_args() -> argparse.Namespace:
         help="Per-sample spatial h5ad (raw UMI counts, post-QC).")
     parser.add_argument("--sc-rnaseq-reference-adata",    default=None,
         help="scRNA-seq reference h5ad (QC-filtered cells × all genes, raw counts).\n"
-             "Trains Stage 1 NB regression and saves inf_aver.csv.gz to --output-dir.\n"
+             "Trains Stage 1 NB regression and saves <ref_stem>_inf_aver.csv.gz to --output-dir.\n"
              "Mutually exclusive with --sc-rnaseq-reference-cell2location-model.")
     parser.add_argument("--sc-rnaseq-reference-cell2location-model", default=None,
-        help="Path to a pre-computed inf_aver.csv.gz produced by a previous run.\n"
+        help="Path to a pre-computed scRNA-seq reference signatures file <ref_stem>_inf_aver.csv.gz produced by a previous run.\n"
              "Skips Stage 1 NB regression entirely.\n"
              "Mutually exclusive with --sc-rnaseq-reference-adata.")
     parser.add_argument("--spatial-technology",           default="visium",
@@ -601,6 +717,10 @@ def _parse_args() -> argparse.Namespace:
     parser.add_argument("--cell-type-key",                default="cell_type_pred",
         help="Column in the reference .obs to use as the cell type label.\n"
              "Default: cell_type_pred")
+    parser.add_argument("--min-cells-per-type",           type=int, default=10,
+        help="Drop reference cell types with fewer than this many cells before\n"
+             "training. scvi-tools warns NB regression may not train properly\n"
+             "for categories with fewer than 3 cells. Default: 10")
     parser.add_argument("--n-comps",                      type=int, default=30,
         help="PCA components for downstream spot clustering. Default: 30")
     parser.add_argument("--n-neighbors",                  type=int, default=15,
@@ -625,6 +745,9 @@ def _parse_args() -> argparse.Namespace:
         help="Directory to write output files. Default: current directory")
     parser.add_argument("--promote",                      action="store_true", default=False,
         help="Write output files. Default is dry-run (prints what would happen).")
+    parser.add_argument("--keep-checkpoints",             action="store_true", default=False,
+        help="Retain model checkpoint directories and intermediate posterior h5ad files\n"
+             "after each stage. Useful for debugging. Default: remove on success.")
     return parser.parse_args()
 
 

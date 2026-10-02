@@ -1,8 +1,8 @@
 # spatial-sc-rnaseq-integration-wf
 
-Repo for testing and developing a workflow that integrates single-cell/single-nucleus RNA-seq data with spatial transcriptomics data (10x Visium). This version (v1.0.0) covers Visium only.
+Repo for testing and developing a workflow that integrates single-cell/single-nucleus RNA-seq data with spatial transcriptomics data. This version (v1.0.0) covers deconvolution of 10x Visium data only.
 
-This workflow consumes outputs from two upstream sibling workflows:
+This workflow consumes outputs from two upstream ASAP workflows:
 * [sc-rnaseq-wf](https://github.com/ASAP-CRN/sc-rnaseq-wf)
 * [spatial-transcriptomics-wf](https://github.com/ASAP-CRN/spatial-transcriptomics-wf)
 
@@ -12,10 +12,10 @@ Common workflows, tasks, utility scripts, and docker images reused across harmon
 # Table of contents
 
 - [Workflows](#workflows)
-    - [Integration](#integration)
+    - [Spatial deconvolution](#spatial-deconvolution)
         - [Deconvolution methods](#deconvolution-methods)
 - [Inputs](#inputs)
-    - [Structs](#structs)
+    - [Structures](#structures)
     - [Generating the inputs JSON](#generating-the-inputs-json)
 - [Outputs](#outputs)
     - [Output structure](#output-structure)
@@ -25,7 +25,7 @@ Common workflows, tasks, utility scripts, and docker images reused across harmon
 
 # Workflows
 
-Workflows are defined in [the `workflows` directory](workflows). The Python scripts which process the data at each stage can be found in [the docker/cell2location_tools/scripts directory](docker/cell2location_tools/scripts).
+Workflows are defined in [the `workflows` directory](./workflows/). The Python scripts which process the data at each stage can be found in the `docker/<method>_tools/scripts` directories.
 
 Workflow name:
 - `spatial_sc_rnaseq_integration`
@@ -34,9 +34,9 @@ Workflow name:
 
 **Input template**: [workflows/inputs.json](workflows/inputs.json)
 
-## Integration
+## Spatial deconvolution
 
-The integration workflow receives processed AnnData objects (`.h5ad`) from the upstream sibling workflows (i.e. does not re-run CellRanger, SpaceRanger, or cell type labelling).
+The deconvolution workflow receives processed AnnData objects (`.h5ad`) from the upstream sibling workflows (i.e. does not re-run CellRanger, SpaceRanger, or cell type labelling).
 
 The scRNA-seq cohort adata is used as a **reference** for all spatial samples. The spatial side is handled **per sample**: each spatial sample adata carrying raw UMI counts is used before any batch correction, so it can be harmonized independently against the scRNA-seq reference. Samples from all projects are flattened and deconvoluted in parallel.
 
@@ -47,11 +47,11 @@ Upstream inputs consumed per source:
 | sc-rnaseq-wf `cohort_analysis` | cohort (reference) | `final_adata_object`, `final_metadata_csv`, `scanvi_cell_types_parquet` |
 | spatial-transcriptomics-wf `spatial_visium preprocess` | per-sample, raw UMI counts | `qc_adata_objects` (one per sample) |
 
-The integration sub-workflow ([workflows/integration/integration.wdl](workflows/integration/integration.wdl)) performs the following steps per Visium sample:
+The deconvolution sub-workflow ([workflows/integration/integration.wdl](workflows/integration/integration.wdl)) performs the following steps per Visium sample:
 
 1. **Stage 1 — NB regression** (skipped if `sc_rnaseq_reference_cell2location_model` is provided): train a Negative Binomial regression model on the scRNA-seq reference to estimate per-cell-type gene expression signatures (`inf_aver`).
 2. **Stage 2 — Spatial mapping**: run Cell2location to map cell type abundances onto Visium spots.
-3. **Stage 3 — Downstream analysis**: PCA → neighbours → UMAP → Leiden clustering on cell type abundance vectors.
+3. **Stage 3 — Downstream analysis**: PCA → neighbours → UMAP → Leiden clustering on deconvoluted cell type abundance vectors (not on gene expression, like `spatial-transcriptomics-wf` does).
 
 All samples (across all projects) are scattered flat and deconvoluted in parallel.
 
@@ -74,9 +74,9 @@ An input template file can be found at [workflows/inputs.json](workflows/inputs.
 | Type | Name | Description |
 | :- | :- | :- |
 | String | cohort_id | Name of the cohort; used to name output files. |
-| Array[[ScRnaseqProject](#scrnaseqproject)] | sc_rnaseq_projects | Processed cohort outputs from sc-rnaseq-wf used as the deconvolution reference. Typically one entry representing the cross-team cohort. |
-| Array[[SpatialVisiumProject](#spatialvisiumproject)]? | spatial_visium_projects | Processed project-level outputs from spatial-transcriptomics-wf (Visium) to deconvolute per sample. [[ ]] |
-| File? | sc_rnaseq_reference_cell2location_model | Pre-computed `inf_aver.csv.gz` from a previous run. When provided, Stage 1 NB regression is skipped for all samples. When omitted, Stage 1 is trained from `sc_rnaseq_projects[0].final_adata_object`. |
+| Array[[`ScRnaseqProject`](#scrnaseqproject)] | sc_rnaseq_projects | Processed cohort outputs from sc-rnaseq-wf used as the deconvolution reference. Typically one entry representing the cross-team cohort. |
+| Array[[`SpatialVisiumProject`](#spatialvisiumproject)]? | spatial_visium_projects | Processed project-level outputs from spatial-transcriptomics-wf (Visium) to deconvolute per sample. [[ ]] |
+| File? | sc_rnaseq_reference_cell2location_model | Pre-computed `<ref_stem>_inf_aver.csv.gz` from a previous run. When provided, Stage 1 NB regression is skipped for all samples. When omitted, Stage 1 is trained from `sc_rnaseq_projects[0].final_adata_object`. |
 | String? | batch_key | Column in reference .obs used as batch covariate in the NB regression model. ['batch_id'] |
 | String? | cell_type_key | Column in reference .obs to use as the cell type label. ['cell_type_pred'] |
 | Int? | n_cells_per_spot | Cell2location N_cells_per_location prior; 8 for brain Visium. [8] |
@@ -86,13 +86,18 @@ An input template file can be found at [workflows/inputs.json](workflows/inputs.
 | Int? | n_comps | Number of principal components to compute. [30] |
 | Int? | n_neighbors | Size of local neighborhood used for manifold approximation. [15] |
 | Array[Float]? | leiden_res | Leiden resolutions controlling the coarseness of clustering. [0.05, 0.1, 0.2, 0.4] |
-| String | cohort_raw_data_bucket_spatial_sc_rnaseq | Bucket to upload cohort integration intermediate files to. |
+| String | cohort_raw_data_bucket_spatial_sc_rnaseq | Bucket to upload cohort deconvolution intermediate files to. |
 | String | container_registry | Container registry where workflow Docker images are hosted. |
 | String? | zones | GCP zones where compute will take place. ['us-central1-c us-central1-f'] |
 
-## Structs
+#### Note
+For script testing, these inputs can be used:
+- sc-RNAseq reference: `gs://asap-wdl-ci/workflow_execution/spatial-sc-rnaseq-integration-wf/reference_building/reference_h5ad/deconvolution_reference_30k.h5ad`
+- Spatial: `gs://asap-wdl-ci/workflow_execution/spatial_visium/preprocess/counts_to_adata/1.0.0/ASAP_PMBDS_000003_s007_Rep1.cleaned_unfiltered.h5ad`
 
-### ScRnaseqProject
+## Structures
+
+### `ScRnaseqProject`
 
 Wraps the final cohort-level outputs of [sc-rnaseq-wf](https://github.com/ASAP-CRN/sc-rnaseq-wf) `cohort_analysis`. Used as the scRNA-seq reference for all spatial samples.
 
@@ -102,12 +107,9 @@ Wraps the final cohort-level outputs of [sc-rnaseq-wf](https://github.com/ASAP-C
 | String | asap_dataset_id | ASAP-generated unique identifier for dataset; used for metadata. |
 | String | asap_dataset_doi_url | ASAP-generated Zenodo DOI URL referencing the dataset. |
 | File | final_adata_object | `cohort_analysis.final_adata_object` (.h5ad) — Harmony-integrated, cell-type-annotated AnnData. |
-| File | final_metadata_csv | `cohort_analysis.final_metadata_csv` — per-cell metadata table. |
-| File | scanvi_cell_types_parquet | `cohort_analysis.scanvi_cell_types_parquet` — scANVI cell type predictions. |
 | String | raw_data_bucket | Raw data bucket; intermediate output files are stored here. |
-| Array[String] | staging_data_buckets | Staging data buckets; final outputs are stored here. |
 
-### SpatialVisiumProject
+### `SpatialVisiumProject`
 
 Groups per-sample Visium adatas from [spatial-transcriptomics-wf](https://github.com/ASAP-CRN/spatial-transcriptomics-wf) `spatial_visium preprocess` for a single team/dataset. Samples are flattened across projects and deconvoluted independently.
 
@@ -116,11 +118,10 @@ Groups per-sample Visium adatas from [spatial-transcriptomics-wf](https://github
 | String | asap_team_id | ASAP-generated unique identifier for team; used for naming output files. |
 | String | asap_dataset_id | ASAP-generated unique identifier for dataset; used for metadata. |
 | String | asap_dataset_doi_url | ASAP-generated Zenodo DOI URL referencing the dataset. |
-| Array[[SpatialVisiumSample](#spatialvisiumsample)] | samples | Per-sample adatas; each sample is deconvoluted independently. |
+| Array[[`SpatialVisiumSample`](#spatialvisiumsample)] | samples | Per-sample adatas; each sample is deconvoluted independently. |
 | String | raw_data_bucket | Raw data bucket; intermediate output files are stored here. |
-| Array[String] | staging_data_buckets | Staging data buckets; final outputs are stored here. |
 
-### SpatialVisiumSample
+### `SpatialVisiumSample`
 
 One Visium sample. Source: `spatial_visium preprocess.qc_adata_objects` from [spatial-transcriptomics-wf](https://github.com/ASAP-CRN/spatial-transcriptomics-wf). The adata carries post-QC raw UMI counts (i.e. from `workflow_execution/spatial_visium/preprocess/counts_to_adata/`).
 
@@ -139,8 +140,6 @@ The relevant GCS paths follow the staging bucket structure of the sibling workfl
 # sc-rnaseq-wf outputs (cross-team cohort)
 asap-dev-{cohort}-pmdbs-sn-rnaseq-{context}/pmdbs_sc_rnaseq/release/${crn_release_version}/cohort_analysis/
   ${cohort_id}.final.h5ad
-  ${cohort_id}.final_metadata.csv
-  ${cohort_id}.scanvi_cell_types.parquet
 
 # spatial-transcriptomics-wf Visium outputs — per-sample post-QC adatas (raw UMI counts)
 asap-raw-{team-xxyy}-pmdbs-spatial-visium-{context}/spatial_visium/release/${crn_release_version}/preprocess/counts_to_adata/${sample_id}.qc.h5ad   # one file per sample
@@ -157,10 +156,7 @@ Example inputs JSON fragment:
       "asap_dataset_id": "DS_PMDBS_XXXX",
       "asap_dataset_doi_url": "https://doi.org/...",
       "final_adata_object": "gs://asap-raw-cohort-.../cohort_analysis/asap-cohort.final.h5ad",
-      "final_metadata_csv": "gs://asap-raw-cohort-.../cohort_analysis/asap-cohort.final_metadata.csv",
-      "scanvi_cell_types_parquet": "gs://asap-raw-cohort-.../cohort_analysis/asap-cohort.scanvi_cell_types.parquet",
-      "raw_data_bucket": "gs://asap-raw-cohort-...",
-      "staging_data_buckets": ["gs://asap-raw-cohort-..."]
+      "raw_data_bucket": "gs://asap-raw-cohort-..."
     }
   ],
   "spatial_sc_rnaseq_integration.spatial_visium_projects": [
@@ -178,12 +174,10 @@ Example inputs JSON fragment:
           "qc_adata_object": "gs://asap-raw-team-xxyy-.../preprocess/counts_to_adata/ASAP_PMDBS_000002_s001_rep1.qc.h5ad"
         }
       ],
-      "raw_data_bucket": "gs://asap-raw-team-xxyy-...",
-      "staging_data_buckets": ["gs://asap-dev-team-xxyy-..."]
+      "raw_data_bucket": "gs://asap-raw-team-xxyy-..."
     }
   ],
   "spatial_sc_rnaseq_integration.cohort_raw_data_bucket_spatial_sc_rnaseq": "gs://asap-raw-cohort-...",
-  "spatial_sc_rnaseq_integration.cohort_staging_data_buckets_spatial_sc_rnaseq": ["gs://asap-raw-cohort-..."],
   "spatial_sc_rnaseq_integration.container_registry": "us-central1-docker.pkg.dev/dnastack-asap-parkinsons/workflow-images"
 }
 ```

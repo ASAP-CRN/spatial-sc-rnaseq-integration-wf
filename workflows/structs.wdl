@@ -8,11 +8,8 @@ struct ScRnaseqProject {
 	String asap_dataset_doi_url
 
 	File final_adata_object          # cohort_analysis.final_adata_object (.h5ad) — Harmony-integrated, annotated
-	File final_metadata_csv          # cohort_analysis.final_metadata_csv
-	File scanvi_cell_types_parquet   # cohort_analysis.scanvi_cell_types_parquet — scANVI cell type predictions
 
 	String raw_data_bucket
-	Array[String] staging_data_buckets
 }
 
 # One Visium sample: per-sample post-QC adata (raw UMI counts) from spatial-transcriptomics-wf.
@@ -32,5 +29,4 @@ struct SpatialVisiumProject {
 	Array[SpatialVisiumSample] samples
 
 	String raw_data_bucket
-	Array[String] staging_data_buckets
 }
