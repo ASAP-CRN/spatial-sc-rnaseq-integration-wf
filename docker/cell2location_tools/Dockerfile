@@ -23,6 +23,13 @@ RUN apt-get -qq update \
 		libffi-dev \
 		libssl-dev \
 		pkg-config \
+		libbz2-dev \
+		liblzma-dev \
+		libreadline-dev \
+		libsqlite3-dev \
+		libncursesw5-dev \
+		tk-dev \
+		uuid-dev \
 	&& rm -rf /var/lib/apt/lists/*
 
 # gcloud sdk; needed to upload output files

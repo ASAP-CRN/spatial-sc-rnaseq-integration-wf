@@ -24,5 +24,4 @@
 *.ipynb
 __pycache__/
 **/.env
-/CLAUDE.md
 /.claude/
