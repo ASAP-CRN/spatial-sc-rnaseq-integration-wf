@@ -15,6 +15,8 @@ Inputs
 --spatial-h5ad                            Per-sample Visium adata path (raw UMI counts, post-QC from `spatial-transcriptomics-wf`).
 --sc-rnaseq-reference-adata               scRNA-seq reference h5ad; trains Stage 1 NB regression.
 --sc-rnaseq-reference-cell2location-model Pre-computed inf_aver.csv.gz; skips Stage 1.
+--build-sc-rnaseq-reference-only          Train Stage 1 and write inf_aver.csv.gz, then exit.
+                                          --sample-id and --spatial-h5ad are not required.
 
 Outputs
 -------
@@ -79,10 +81,10 @@ _CELLS_PER_SPOT = 8 # Used for mouse brain tissue. Note that cell2location_tutor
 
 # Source https://cell2location.readthedocs.io/en/latest/notebooks/cell2location_tutorial.html
 _DETECTION_ALPHA = 100      # detection rate prior. Tutorial recommends detection_alpha between 20 (High technical variability in RNA detection) and 200 (low technical variability in RNA detection)
-_REF_N_SAMPLES   = 1_000    # posterior samples for reference model. Tutorial recommends num_samples=1000
+_REF_N_SAMPLES   = 1_000    # posterior samples (Monte Carlo draws) for reference model. Tutorial recommends num_samples=1000
 _EPOCHS_REF     = 250       # NB regression. Tutorial recommends max_epochs=250 for reference signature estimation.
 _EPOCHS_SPATIAL = 30_000    # Cell2location spatial mapping. Tutorial recommends max_epochs=30000.
-_REF_BATCH_SIZE  = 2_500    # posterior sampling. Tutorial recommends batch_size=2500, which is higher than scVI.
+_REF_BATCH_SIZE  = 2_500    # posterior sampling (number of cells per sampling batch). Tutorial recommends batch_size=2500, which is higher than scVI.
 _TRAIN_SIZE      = 1        # training batch size for spatial model. Tutorial recommends train_size=1.
 
 _ACCELERATOR     = get_accelerator()  # auto-selects: "gpu" (CUDA) > "mps" (Apple Silicon) > "cpu"
@@ -140,7 +142,7 @@ def _run_export_posterior_subprocess(
             "--checkpoint-dir", ckpt_dir,
             "--model-class", model_class,
             "--output-h5ad", export_h5ad,
-            "--num-samples", str(num_samples),
+            "--posterior-num-samples", str(num_samples),
             "--batch-size", str(batch_size),
         ],
         check=True,
@@ -313,6 +315,8 @@ def _build_reference_signatures(
     max_epochs: int,
     accelerator: str,
     output_dir: str,
+    num_samples: int,
+    posterior_batch_size: int,
     keep_checkpoints: bool = False,
 ) -> pd.DataFrame:
     """
@@ -343,7 +347,10 @@ def _build_reference_signatures(
         labels_key="cell_type",
     )
     ref_model = RegressionModel(adata_ref)
-    ref_model.train(max_epochs=max_epochs, accelerator=accelerator)
+    ref_model.train(max_epochs=max_epochs, 
+                    accelerator=accelerator, 
+                    early_stopping=True, 
+                    early_stopping_monitor="elbo_train")
     _save_training_history_plot(
         ref_model,
         os.path.join(output_dir, "stage1_ref_training_history.png"),
@@ -355,8 +362,8 @@ def _build_reference_signatures(
         model_class="RegressionModel",
         ckpt_dir=os.path.join(output_dir, "stage1_ref_model_checkpoint"),
         export_h5ad=os.path.join(output_dir, "stage1_ref_posterior_export.h5ad"),
-        num_samples=_REF_N_SAMPLES,
-        batch_size=_REF_BATCH_SIZE,
+        num_samples=num_samples,
+        batch_size=posterior_batch_size,
         keep_checkpoints=keep_checkpoints,
     )
 
@@ -384,6 +391,8 @@ def _run_cell2location_visium(
     max_epochs: int,
     accelerator: str,
     output_dir: str,
+    num_samples: int,
+    posterior_batch_size: int,
     keep_checkpoints: bool = False,
 ) -> ad.AnnData:
     """
@@ -435,6 +444,8 @@ def _run_cell2location_visium(
         batch_size=None,
         train_size=_TRAIN_SIZE,
         accelerator=accelerator,
+        early_stopping=True,
+        early_stopping_monitor="elbo_train",
     )
     _save_training_history_plot(
         model,
@@ -447,8 +458,8 @@ def _run_cell2location_visium(
         model_class="Cell2location",
         ckpt_dir=os.path.join(output_dir, "stage2_cell2location_model_checkpoint"),
         export_h5ad=os.path.join(output_dir, "stage2_spatial_posterior_export.h5ad"),
-        num_samples=_REF_N_SAMPLES,
-        batch_size=adata_spatial.n_obs,
+        num_samples=num_samples,
+        batch_size=posterior_batch_size,
         keep_checkpoints=keep_checkpoints,
     )
     return adata_spatial
@@ -510,8 +521,8 @@ def _downstream_analysis(
 
 
 def deconvolute_visium(
-    sample_id: str,
-    spatial_h5ad: str,
+    sample_id: str | None,
+    spatial_h5ad: str | None,
     ref_h5ad: str | None,
     reference_model: str | None,
     batch_key: str,
@@ -524,10 +535,13 @@ def deconvolute_visium(
     detection_alpha: int,
     epochs_ref: int,
     epochs_spatial: int,
+    num_samples: int,
+    posterior_batch_size: int,
     accelerator: str,
     output_dir: str,
     promote: bool,
     keep_checkpoints: bool = False,
+    build_reference_only: bool = False,
 ) -> None:
     """
     Full Cell2location deconvolution pipeline for one Visium sample.
@@ -570,30 +584,41 @@ def deconvolute_visium(
         If False, print plan without writing any files.
     keep_checkpoints : bool
         If True, retain model checkpoint directories and intermediate posterior h5ad files.
+    build_reference_only : bool
+        If True, run Stage 1 and write `inf_aver.csv.gz`, then exit without Stage 2/3.
+        Requires `ref_h5ad`; `sample_id` and `spatial_h5ad` are ignored.
 
     Returns
     -------
     None
     """
-    sample_id = _correct_sample_id(sample_id)
-    out_h5ad      = os.path.join(output_dir, f"{sample_id}.deconvoluted.h5ad")
-    out_csv       = os.path.join(output_dir, f"{sample_id}.deconvolution_metadata.csv")
-    out_inf_aver  = (
+    out_inf_aver = (
         os.path.join(output_dir, f"{Path(ref_h5ad).stem}_inf_aver.csv.gz")
         if ref_h5ad else None
     )
+    if not build_reference_only:
+        sample_id = _correct_sample_id(sample_id)
+        out_h5ad  = os.path.join(output_dir, f"{sample_id}.deconvoluted.h5ad")
+        out_csv   = os.path.join(output_dir, f"{sample_id}.deconvolution_metadata.csv")
 
     if not promote:
         print(f"[DRY-RUN] Would write:")
-        print(f"  {out_h5ad}")
-        print(f"  {out_csv}")
-        if ref_h5ad:
+        if build_reference_only:
             print(f"  {out_inf_aver}")
+        else:
+            print(f"  {out_h5ad}")
+            print(f"  {out_csv}")
+            if ref_h5ad:
+                print(f"  {out_inf_aver}")
         print("Re-run with --promote to write outputs.")
         return
 
     os.makedirs(output_dir, exist_ok=True)
-    out_timing = os.path.join(output_dir, f"{sample_id}.timing.tsv")
+    ref_stem   = Path(ref_h5ad).stem if ref_h5ad else (sample_id or "run")
+    out_timing = os.path.join(
+        output_dir,
+        f"{ref_stem}_ref_build.timing.tsv" if build_reference_only else f"{sample_id}.timing.tsv",
+    )
     timing = []
     t_total = time.time()
 
@@ -608,17 +633,26 @@ def deconvolute_visium(
         adata_ref = _load_reference(ref_h5ad, cell_type_key, min_cells_per_type)
         adata_ref = _filter_mt_genes(adata_ref, "reference")
         _ensure_raw_int_counts(adata_ref, "reference")
-        inf_aver = _build_reference_signatures(adata_ref, batch_key, epochs_ref, accelerator, output_dir, keep_checkpoints)
+        inf_aver = _build_reference_signatures(adata_ref, batch_key, epochs_ref, accelerator, output_dir, num_samples, posterior_batch_size, keep_checkpoints)
         del adata_ref
         print(f"[INFO] Writing {out_inf_aver} ...")
         inf_aver.to_csv(out_inf_aver, compression="gzip")
         timing.append(("stage1_nb_regression", time.time() - t0))
+        if build_reference_only:
+            timing.append(("total", time.time() - t_total))
+            with open(out_timing, "w") as f:
+                f.write("step\tduration_seconds\n")
+                for step, secs in timing:
+                    f.write(f"{step}\t{secs:.1f}\n")
+            print(f"[INFO] Timing written to {out_timing}")
+            print(f"[DONE] Reference built: {out_inf_aver}")
+            return
 
     # --- Step 2: spatial mapping ---
     t0 = time.time()
     adata_spatial, sample_id = _load_spatial(spatial_h5ad, sample_id)
     adata_spatial = _run_cell2location_visium(
-        adata_spatial, inf_aver, n_cells_per_spot, detection_alpha, epochs_spatial, accelerator, output_dir, keep_checkpoints
+        adata_spatial, inf_aver, n_cells_per_spot, detection_alpha, epochs_spatial, accelerator, output_dir, num_samples, posterior_batch_size, keep_checkpoints
     )
     timing.append(("stage2_spatial_mapping", time.time() - t0))
 
@@ -656,6 +690,7 @@ def main() -> None:
 
     ref_adata = args.sc_rnaseq_reference_adata
     ref_model = args.sc_rnaseq_reference_cell2location_model
+    build_reference_only = args.build_sc_rnaseq_reference_only
     if ref_adata and ref_model:
         raise SystemExit(
             "error: --sc-rnaseq-reference-adata and --sc-rnaseq-reference-cell2location-model "
@@ -666,6 +701,15 @@ def main() -> None:
             "error: one of --sc-rnaseq-reference-adata or "
             "--sc-rnaseq-reference-cell2location-model is required."
         )
+    if build_reference_only and not ref_adata:
+        raise SystemExit(
+            "error: --build-sc-rnaseq-reference-only requires --sc-rnaseq-reference-adata."
+        )
+    if not build_reference_only:
+        if not args.sample_id:
+            raise SystemExit("error: --sample-id is required unless --build-sc-rnaseq-reference-only is set.")
+        if not args.spatial_h5ad:
+            raise SystemExit("error: --spatial-h5ad is required unless --build-sc-rnaseq-reference-only is set.")
 
     log_run_command(Path(args.output_dir) / f"{Path(sys.argv[0]).stem}.log")
 
@@ -684,10 +728,13 @@ def main() -> None:
         detection_alpha    = args.detection_alpha,
         epochs_ref         = args.max_epochs_ref,
         epochs_spatial     = args.max_epochs_spatial,
+        num_samples        = args.posterior_num_samples,
+        posterior_batch_size = args.posterior_batch_size,
         accelerator        = args.accelerator,
         output_dir         = args.output_dir,
-        promote            = args.promote,
-        keep_checkpoints   = args.keep_checkpoints,
+        promote              = args.promote,
+        keep_checkpoints     = args.keep_checkpoints,
+        build_reference_only = build_reference_only,
     )
 
 
@@ -696,10 +743,12 @@ def _parse_args() -> argparse.Namespace:
         description=__doc__,
         formatter_class=argparse.RawTextHelpFormatter,
     )
-    parser.add_argument("--sample-id",                    required=True,
-        help="Spatial sample identifier. 'ASAP_PMBDS_' is auto-corrected to 'ASAP_PMDBS_'.")
-    parser.add_argument("--spatial-h5ad",                required=True,
-        help="Per-sample spatial h5ad (raw UMI counts, post-QC).")
+    parser.add_argument("--sample-id",                    default=None,
+        help="Spatial sample identifier. 'ASAP_PMBDS_' is auto-corrected to 'ASAP_PMDBS_'.\n"
+             "Required unless --build-sc-rnaseq-reference-only is set.")
+    parser.add_argument("--spatial-h5ad",                default=None,
+        help="Per-sample spatial h5ad (raw UMI counts, post-QC).\n"
+             "Required unless --build-sc-rnaseq-reference-only is set.")
     parser.add_argument("--sc-rnaseq-reference-adata",    default=None,
         help="scRNA-seq reference h5ad (QC-filtered cells × all genes, raw counts).\n"
              "Trains Stage 1 NB regression and saves <ref_stem>_inf_aver.csv.gz to --output-dir.\n"
@@ -745,9 +794,19 @@ def _parse_args() -> argparse.Namespace:
         help="Directory to write output files. Default: current directory")
     parser.add_argument("--promote",                      action="store_true", default=False,
         help="Write output files. Default is dry-run (prints what would happen).")
+    parser.add_argument("--posterior-num-samples",                  type=int, default=_REF_N_SAMPLES,
+        help=f"Posterior samples drawn during export_posterior. Reduce to lower peak RAM\n"
+             f"(e.g. 200–300) at the cost of noisier estimates. Default: {_REF_N_SAMPLES}")
+    parser.add_argument("--posterior-batch-size",         type=int, default=_REF_BATCH_SIZE,
+        help=f"Batch size for posterior sampling. Reduce to lower peak RAM\n"
+             f"(e.g. 500–1000). Default: {_REF_BATCH_SIZE}")
     parser.add_argument("--keep-checkpoints",             action="store_true", default=False,
         help="Retain model checkpoint directories and intermediate posterior h5ad files\n"
              "after each stage. Useful for debugging. Default: remove on success.")
+    parser.add_argument("--build-sc-rnaseq-reference-only", action="store_true", default=False,
+        help="Train Stage 1 NB regression and write <ref_stem>_inf_aver.csv.gz, then exit.\n"
+             "Requires --sc-rnaseq-reference-adata. --sample-id and --spatial-h5ad are not required.\n"
+             "Use --sc-rnaseq-reference-cell2location-model <ref_stem>_inf_aver.csv.gz in subsequent runs.")
     return parser.parse_args()
 
 

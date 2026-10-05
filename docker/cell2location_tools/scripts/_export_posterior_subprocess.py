@@ -15,7 +15,7 @@ def main() -> None:
     parser.add_argument("--checkpoint-dir", required=True)
     parser.add_argument("--model-class", required=True, choices=["RegressionModel", "Cell2location"])
     parser.add_argument("--output-h5ad", required=True)
-    parser.add_argument("--num-samples", type=int, required=True)
+    parser.add_argument("--posterior-num-samples", type=int, required=True)
     parser.add_argument("--batch-size", type=int, required=True)
     args = parser.parse_args()
 
@@ -28,7 +28,7 @@ def main() -> None:
     adata = model.export_posterior(
         model.adata,
         sample_kwargs={
-            "num_samples": args.num_samples,
+            "num_samples": args.posterior_num_samples,
             "batch_size": args.batch_size,
             "accelerator": "cpu",
         },
