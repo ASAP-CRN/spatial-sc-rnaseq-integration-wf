@@ -11,7 +11,8 @@ This is a one-time analysis, not part of the spatial deconvolution WDL pipeline.
 Relationship to other scripts:
 - Run integrate_kamath_menon_siletti_asap.py after downsample_kamath_menon_siletti_asap.py
   with the same values for the following parameters:
-  --kamath-non-da-per-type (or --kamath-all-random --downsample-kamath), --downsample-menon,
+  --kamath-non-da-per-type (or --kamath-all-random / --kamath-cell-type-min, both paired with
+  --downsample-kamath), --downsample-menon,
   --siletti-scale and --downsample-asap-cohort so integrate_kamath_menon_siletti_asap.py
   finds the right cached files.
   These downsample_* and integrate_* scripts were split to:
@@ -465,7 +466,8 @@ def _require_cache(path: str) -> None:
         raise FileNotFoundError(
             f"Required cache not found: {path}\n"
             "Run downsample_kamath_menon_siletti_asap.py first, with the "
-            "same --kamath-non-da-per-type (or --kamath-all-random --downsample-kamath) / "
+            "same --kamath-non-da-per-type (or --kamath-all-random / --kamath-cell-type-min, "
+            "both paired with --downsample-kamath) / "
             "--downsample-menon / --siletti-scale / --downsample-asap-cohort values."
         )
 
@@ -476,10 +478,14 @@ def main(args: argparse.Namespace) -> None:
     scvi.settings.seed = 42
     t_start = time.monotonic()
 
+    if args.kamath_all_random and args.kamath_cell_type_min > 0:
+        parser.error("--kamath-all-random and --kamath-cell-type-min are mutually exclusive.")
     if args.kamath_all_random and args.downsample_kamath is None:
         parser.error("--downsample-kamath is required when --kamath-all-random is set.")
-    if not args.kamath_all_random and args.downsample_kamath is not None:
-        parser.error("--downsample-kamath is only valid when --kamath-all-random is set.")
+    if args.kamath_cell_type_min > 0 and args.downsample_kamath is None:
+        parser.error("--downsample-kamath is required when --kamath-cell-type-min is set.")
+    if args.downsample_kamath is not None and not args.kamath_all_random and args.kamath_cell_type_min == 0:
+        parser.error("--downsample-kamath requires --kamath-all-random or --kamath-cell-type-min.")
 
     print("\n=== Locating cached preQC/postQC intermediate files ===")
     kamath_dir = os.path.join(_REFERENCE_DATA_DIR, "kamath")
@@ -492,6 +498,9 @@ def main(args: argparse.Namespace) -> None:
 
     if args.kamath_all_random:
         kamath_anchor = os.path.join(kamath_dir, "intermediate", "kamath_merged_all_rand")
+        kamath_tag = str(args.downsample_kamath)
+    elif args.kamath_cell_type_min > 0:
+        kamath_anchor = os.path.join(kamath_dir, "intermediate", f"kamath_merged_cell_type_min{args.kamath_cell_type_min}")
         kamath_tag = str(args.downsample_kamath)
     else:
         kamath_anchor = os.path.join(kamath_dir, "intermediate", "kamath_merged_da_all_non_da")
@@ -815,8 +824,18 @@ if __name__ == "__main__":
         default=False,
         help="Load the all-random Kamath pool (kamath_merged_all_rand_N) produced\n"
              "by downsample_kamath_menon_siletti_asap.py --kamath-all-random.\n"
-             "Requires --downsample-kamath. Incompatible without it.\n"
+             "Requires --downsample-kamath. Mutually exclusive with --kamath-cell-type-min.\n"
              "[Default: False]",
+    )
+    parser.add_argument(
+        "--kamath-cell-type-min",
+        type=int,
+        default=0,
+        help="Load the per-cell-type-min Kamath pool (kamath_merged_cell_type_minN_M)\n"
+             "produced by downsample_kamath_menon_siletti_asap.py --kamath-cell-type-min.\n"
+             "Must match the value used there. Requires --downsample-kamath.\n"
+             "Mutually exclusive with --kamath-all-random. 0 = disabled.\n"
+             "[Default: 0]",
     )
     parser.add_argument(
         "--downsample-kamath",
@@ -824,7 +843,8 @@ if __name__ == "__main__":
         default=None,
         help="Must match --downsample-kamath passed to downsample_kamath_menon_siletti_asap.py\n"
              "-- used only to reconstruct the matching Kamath cache filename,\n"
-             "not to re-downsample. Required when --kamath-all-random is set.\n"
+             "not to re-downsample. Required when --kamath-all-random or\n"
+             "--kamath-cell-type-min is set.\n"
              "[Default: None]",
     )
     parser.add_argument(
