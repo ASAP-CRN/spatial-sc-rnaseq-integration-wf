@@ -19,6 +19,10 @@ RUN apt-get -qq update \
 		wget \
 		curl \
 		git \
+		zlib1g-dev \
+		libffi-dev \
+		libssl-dev \
+		pkg-config \
 	&& rm -rf /var/lib/apt/lists/*
 
 # gcloud sdk; needed to upload output files

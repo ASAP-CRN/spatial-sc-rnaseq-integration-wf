@@ -1,0 +1,29 @@
+steps:
+  - name: 'gcr.io/cloud-builders/docker'
+    args:
+      - build
+      - '-f'
+      - 'docker/cell2location_tools/Dockerfile'
+      - '--build-arg'
+      - 'UBUNTU_VERSION=${_UBUNTU_VERSION}'
+      - '--build-arg'
+      - 'GCLOUD_CLI_VERSION=${_GCLOUD_CLI_VERSION}'
+      - '--build-arg'
+      - 'PYTHON3_VERSION=${_PYTHON3_VERSION}'
+      - '--build-arg'
+      - 'IMAGE_NAME=${_IMAGE_NAME}'
+      - '--build-arg'
+      - 'IMAGE_TAG=${_IMAGE_TAG}'
+      - '-t'
+      - 'us-central1-docker.pkg.dev/${PROJECT_ID}/workflow-images/${_IMAGE_NAME}:${_IMAGE_TAG}'
+      - '.'
+images:
+  - 'us-central1-docker.pkg.dev/${PROJECT_ID}/workflow-images/${_IMAGE_NAME}:${_IMAGE_TAG}'
+options:
+  machineType: 'E2_HIGHCPU_8'
+substitutions:
+  _UBUNTU_VERSION: '22.04'
+  _GCLOUD_CLI_VERSION: '524.0.0'
+  _PYTHON3_VERSION: '3.12.7'
+  _IMAGE_NAME: 'cell2location_tools'
+  _IMAGE_TAG: '1.0.0'

@@ -1,0 +1,28 @@
+.git/
+.gcloudignore
+
+# Large local data/output directories not needed for the docker build context
+/reference_building/
+/notebooks/
+/deconvolution_output*/
+/spatial_samples/
+/wf-common/
+.ipynb_checkpoints/
+
+# Not needed for the cell2location_tools docker build context
+/workflows/
+/scripts/
+/.github/
+/spatial-sc-rnaseq-integration-wdl-ci-custom-test-dir/
+/README.md
+/.gitmodules
+/.gitignore
+/wdl-ci.config.json
+
+# Misc
+.DS_Store
+*.ipynb
+__pycache__/
+**/.env
+/CLAUDE.md
+/.claude/
