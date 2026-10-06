@@ -50,6 +50,7 @@ workflow integration {
 		Int           n_comps
 		Int           n_neighbors
 		Array[Float]  leiden_res
+		Boolean       skip_clustering = false
 
 		String               raw_data_path
 		String               billing_project
@@ -74,6 +75,7 @@ workflow integration {
 				n_comps                                 = n_comps,
 				n_neighbors                             = n_neighbors,
 				leiden_res                              = leiden_res,
+				skip_clustering                         = skip_clustering,
 				raw_data_path                           = raw_data_path,
 				billing_project                         = billing_project,
 				container_registry                      = container_registry,
@@ -103,6 +105,7 @@ workflow integration {
 		n_comps:                                 {help: "Number of PCA components for downstream spot clustering"}
 		n_neighbors:                             {help: "Neighbourhood size for downstream spot clustering"}
 		leiden_res:                              {help: "Leiden resolutions controlling the coarseness of clustering"}
+		skip_clustering:                         {help: "Skip Stage 3 downstream Leiden clustering; Stage 1/2 outputs are still written"}
 		raw_data_path:                           {help: "GCS path to raw data bucket; intermediate outputs are stored here"}
 		billing_project:                         {help: "GCP billing project for requester-pays bucket access"}
 		container_registry:                      {help: "Container registry hosting workflow Docker images"}
@@ -139,6 +142,7 @@ task cell2location_visium {
 		Int    n_comps
 		Int    n_neighbors
 		Array[Float] leiden_res
+		Boolean skip_clustering = false
 
 		String               raw_data_path
 		String               billing_project
@@ -170,6 +174,7 @@ task cell2location_visium {
 			--n-comps ~{n_comps} \
 			--n-neighbors ~{n_neighbors} \
 			--leiden-res ~{sep=" " leiden_res} \
+			~{if skip_clustering then "--skip-clustering" else ""} \
 			--output-dir . \
 			--promote
 	>>>

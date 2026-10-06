@@ -17,6 +17,7 @@ Inputs
 --sc-rnaseq-reference-cell2location-model Pre-computed inf_aver.csv.gz; skips Stage 1.
 --build-sc-rnaseq-reference-only          Train Stage 1 and write inf_aver.csv.gz, then exit.
                                           --sample-id and --spatial-h5ad are not required.
+--skip-clustering                        Skip Stage 3 (Leiden clustering); write Stage 1/2 outputs only.
 
 Outputs
 -------
@@ -546,6 +547,7 @@ def deconvolute_visium(
     promote: bool,
     keep_checkpoints: bool = False,
     build_reference_only: bool = False,
+    skip_clustering: bool = False,
 ) -> None:
     """
     Full Cell2location deconvolution pipeline for one Visium sample.
@@ -591,6 +593,10 @@ def deconvolute_visium(
     build_reference_only : bool
         If True, run Stage 1 and write `inf_aver.csv.gz`, then exit without Stage 2/3.
         Requires `ref_h5ad`; `sample_id` and `spatial_h5ad` are ignored.
+    skip_clustering : bool
+        If True, skip Stage 3 downstream clustering (PCA/neighbours/UMAP/Leiden) and
+        write Stage 1/2 outputs only. Useful to isolate Stage 3-only failures (e.g.
+        missing igraph/leidenalg) without losing a completed Stage 1/2 run.
 
     Returns
     -------
@@ -660,11 +666,15 @@ def deconvolute_visium(
     )
     timing.append(("stage2_spatial_mapping", time.time() - t0))
 
-    # --- Step 3: downstream analysis ---
+    # --- Step 3: downstream analysis (optional clustering) ---
     t0 = time.time()
     _add_cell_type_fractions(adata_spatial)
-    _downstream_analysis(adata_spatial, n_comps, n_neighbors, leiden_res)
-    timing.append(("stage3_downstream", time.time() - t0))
+    if skip_clustering:
+        print("[INFO] Skipping Stage 3 downstream clustering (--skip-clustering).")
+        timing.append(("stage3_downstream_skipped", time.time() - t0))
+    else:
+        _downstream_analysis(adata_spatial, n_comps, n_neighbors, leiden_res)
+        timing.append(("stage3_downstream", time.time() - t0))
 
     # --- Write outputs ---
     t0 = time.time()
@@ -739,6 +749,7 @@ def main() -> None:
         promote              = args.promote,
         keep_checkpoints     = args.keep_checkpoints,
         build_reference_only = build_reference_only,
+        skip_clustering       = args.skip_clustering,
     )
 
 
@@ -811,6 +822,10 @@ def _parse_args() -> argparse.Namespace:
         help="Train Stage 1 NB regression and write <ref_stem>_inf_aver.csv.gz, then exit.\n"
              "Requires --sc-rnaseq-reference-adata. --sample-id and --spatial-h5ad are not required.\n"
              "Use --sc-rnaseq-reference-cell2location-model <ref_stem>_inf_aver.csv.gz in subsequent runs.")
+    parser.add_argument("--skip-clustering",              action="store_true", default=False,
+        help="Skip Stage 3 downstream clustering (PCA/neighbours/UMAP/Leiden) on cell type\n"
+             "fractions. Requires the igraph/leidenalg packages when not skipped. Still\n"
+             "writes Stage 1/2 outputs. Default: False")
     return parser.parse_args()
 
 

@@ -2,6 +2,8 @@
 anndata==0.13.2
 cell2location==0.1.5
 h5py==3.16.0
+igraph==1.0.0
+leidenalg==0.12.0
 matplotlib==3.10.8
 numpy==2.4.2
 pandas==2.3.3

@@ -47,6 +47,7 @@ workflow spatial_sc_rnaseq_integration {
 		Int n_comps             = 30
 		Int n_neighbors         = 15
 		Array[Float] leiden_res = [0.05, 0.1, 0.2, 0.4]
+		Boolean skip_clustering = false
 
 		String cohort_raw_data_bucket_spatial_sc_rnaseq
 
@@ -86,6 +87,7 @@ workflow spatial_sc_rnaseq_integration {
 			n_comps                                  = n_comps,
 			n_neighbors                              = n_neighbors,
 			leiden_res                               = leiden_res,
+			skip_clustering                          = skip_clustering,
 			raw_data_path                            = cohort_raw_data_bucket_spatial_sc_rnaseq,
 			billing_project                          = get_workflow_metadata.billing_project,
 			container_registry                       = container_registry,
