@@ -24,7 +24,11 @@ def main() -> None:
     else:
         from cell2location.models import Cell2location as ModelCls
 
-    model = ModelCls.load(args.checkpoint_dir)
+    # accelerator="cpu" here (not just in sample_kwargs below) is required: .load() defaults
+    # to "auto", which picks CUDA when available, leaving the model's own buffers (e.g.
+    # detection_mean_y_e) on cuda:0 while sample_posterior's "cpu" accelerator creates fresh
+    # tensors on CPU — a device mismatch that only surfaces on an actual CUDA GPU, not MPS/CPU.
+    model = ModelCls.load(args.checkpoint_dir, accelerator="cpu")
     adata = model.export_posterior(
         model.adata,
         sample_kwargs={
