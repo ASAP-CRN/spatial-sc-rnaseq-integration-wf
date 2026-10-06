@@ -19,6 +19,7 @@ RUN apt-get -qq update \
 		wget \
 		curl \
 		git \
+		time \
 		zlib1g-dev \
 		libffi-dev \
 		libssl-dev \

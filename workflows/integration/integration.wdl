@@ -51,6 +51,7 @@ workflow integration {
 		Int           n_neighbors
 		Array[Float]  leiden_res
 		Boolean       skip_clustering = false
+		Int           preemptible = 3
 
 		String               raw_data_path
 		String               billing_project
@@ -76,6 +77,7 @@ workflow integration {
 				n_neighbors                             = n_neighbors,
 				leiden_res                              = leiden_res,
 				skip_clustering                         = skip_clustering,
+				preemptible                             = preemptible,
 				raw_data_path                           = raw_data_path,
 				billing_project                         = billing_project,
 				container_registry                      = container_registry,
@@ -106,6 +108,7 @@ workflow integration {
 		n_neighbors:                             {help: "Neighbourhood size for downstream spot clustering"}
 		leiden_res:                              {help: "Leiden resolutions controlling the coarseness of clustering"}
 		skip_clustering:                         {help: "Skip Stage 3 downstream Leiden clustering; Stage 1/2 outputs are still written"}
+		preemptible:                             {help: "Number of preemptible-VM attempts before Cromwell falls back to on-demand; 0 forces on-demand from the first attempt. Default 3; use 0 for long production runs where a preemption-triggered restart-from-scratch would be too costly"}
 		raw_data_path:                           {help: "GCS path to raw data bucket; intermediate outputs are stored here"}
 		billing_project:                         {help: "GCP billing project for requester-pays bucket access"}
 		container_registry:                      {help: "Container registry hosting workflow Docker images"}
@@ -143,6 +146,7 @@ task cell2location_visium {
 		Int    n_neighbors
 		Array[Float] leiden_res
 		Boolean skip_clustering = false
+		Int preemptible = 3
 
 		String               raw_data_path
 		String               billing_project
@@ -159,7 +163,7 @@ task cell2location_visium {
 		# (requires: COPY utils /opt/scripts/utils in the Dockerfile build context)
 		export PYTHONPATH=/opt/scripts
 
-		python3 /opt/scripts/cell2location_deconvolute.py \
+		/usr/bin/time -v python3 /opt/scripts/cell2location_deconvolute.py \
 			--sample-id ~{sample_id} \
 			--spatial-h5ad ~{spatial_adata} \
 			~{if defined(sc_rnaseq_reference_cell2location_model)
@@ -195,7 +199,7 @@ task cell2location_visium {
 		gpuType: "nvidia-tesla-t4"
 		gpuCount: 1
 		nvidiaDriverVersion: "545.23.08" #!UnknownRuntimeKey
-		preemptible: 3
+		preemptible: preemptible
 		zones: zones
 	}
 }
