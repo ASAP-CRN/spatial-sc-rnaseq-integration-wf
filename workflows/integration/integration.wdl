@@ -155,6 +155,8 @@ task cell2location_visium {
 	}
 
 	Int disk_size = ceil(size(spatial_adata, "GB") + size(select_first([sc_rnaseq_reference_adata, sc_rnaseq_reference_cell2location_model]), "GB") + 50)
+	# Fix expected sample_id in outfile name.
+	String corrected_sample_id = sub(sample_id, "^ASAP_PMBDS_", "ASAP_PMDBS_")
 
 	command <<<
 		set -euo pipefail
@@ -184,8 +186,8 @@ task cell2location_visium {
 	>>>
 
 	output {
-		File  deconvoluted_adata_object  = "~{sample_id}.deconvoluted.h5ad"
-		File  deconvolution_metadata_csv = "~{sample_id}.deconvolution_metadata.csv"
+		File  deconvoluted_adata_object  = "~{corrected_sample_id}.deconvoluted.h5ad"
+		File  deconvolution_metadata_csv = "~{corrected_sample_id}.deconvolution_metadata.csv"
 		# Non-empty only when Stage 1 ran (sc_rnaseq_reference_adata provided); empty in Mode B.
 		Array[File] inf_aver_csv_gz      = glob("*_inf_aver.csv.gz")
 	}
