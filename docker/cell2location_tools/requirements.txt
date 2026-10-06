@@ -6,6 +6,7 @@ matplotlib==3.10.8
 numpy==2.4.2
 pandas==2.3.3
 pyarrow==23.0.1
+pyro-ppl==1.9.1
 scanpy==1.12.3
 scipy==1.17.1
 scvi-tools==1.5.0.post1
