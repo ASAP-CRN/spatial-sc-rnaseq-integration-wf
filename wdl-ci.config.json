@@ -25,7 +25,7 @@
               "inputs": {
                 "sample_id": "ASAP_PMBDS_000003_s007_Rep1",
                 "spatial_adata": "${spatial_visium_preprocess_path}/ASAP_PMBDS_000003_s007_Rep1.cleaned_unfiltered.h5ad",
-                "sc_rnaseq_reference_adata": "${sc_rnaseq_input_path}/deconvolution_reference_30k.h5ad",
+                "sc_rnaseq_reference_adata": "${sc_rnaseq_input_path}/deconvolution_reference_30k_c2lUda_KamathRand.h5ad",
                 "batch_key": "${batch_key}",
                 "cell_type_key": "${cell_type_key}",
                 "n_cells_per_spot": "${n_cells_per_spot}",
@@ -36,6 +36,7 @@
                 "n_neighbors": "${n_neighbors}",
                 "leiden_res": "${leiden_res}",
                 "skip_clustering": "${skip_clustering}",
+                "preemptible": "${preemptible}",
                 "raw_data_path": "${cohort_raw_data_path}",
                 "billing_project": "${billing_project}",
                 "container_registry": "${container_registry}",
@@ -172,6 +173,7 @@
       "n_neighbors": 15,
       "leiden_res": [0.05, 0.1, 0.2, 0.4],
       "skip_clustering": true,
+      "preemptible": 0,
       "billing_project": "dnastack-asap-parkinsons",
       "container_registry": "us-central1-docker.pkg.dev/dnastack-asap-parkinsons/workflow-images",
       "zones": "us-central1-c us-central1-f"

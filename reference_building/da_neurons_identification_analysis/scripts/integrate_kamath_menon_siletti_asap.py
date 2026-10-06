@@ -78,7 +78,6 @@ from _reference_building_utils import (
     _SILETTI_SCALE_PRESETS,
     _SILETTI_DEFAULT_SCALE,
     _ASAP_H5AD_PATH,
-    _KAMATH_DA_MARKER_SYMBOLS,
     _DEFAULT_KAMATH_NON_DA_PER_TYPE,
     _DEFAULT_DOWNSAMPLE_MENON,
     _DEFAULT_DOWNSAMPLE_ASAP_COHORT,
@@ -88,48 +87,13 @@ from _reference_building_utils import (
     log_run_command,
 )
 
+_repo_root = next(p for p in Path(__file__).resolve().parents if (p / ".git").exists())
+sys.path.insert(0, str(_repo_root))
+from utils.h5ad_utils import resolve_marker_ensembl_ids
+from utils.genomics_constants import KAMATH_DA_MARKER_SYMBOLS
+
 warnings.filterwarnings("ignore", category=FutureWarning)
 warnings.filterwarnings("ignore", message=".*copying X to .raw.*")
-
-
-def _resolve_marker_ensembl_ids(
-    feature_name: pd.Series,
-    marker_symbols: tuple,
-    source_label: str,
-) -> list[str]:
-    """
-    Resolve gene symbols to Ensembl IDs via a source's var['feature_name'].
-
-    Kamath/ASAP's own var has no gene-symbol column post-load, and
-    ad.concat(merge='same') doesn't reliably preserve one onto the merged
-    object either, so this looks symbols up against one source (Menon or
-    Siletti) BEFORE the merge, not against merged.var itself.
-
-    Parameters
-    ----------
-    feature_name : pd.Series
-        A source's `adata.var['feature_name']`, indexed by Ensembl ID.
-    marker_symbols : tuple
-        Gene symbols to resolve.
-    source_label : str
-        Label for the warning message (e.g. 'Menon').
-
-    Returns
-    -------
-    list[str]
-        Ensembl IDs found. Unmatched symbols are warned about, not raised on.
-    """
-    # feature_name is categorical and can have duplicate symbol values
-    # (distinct Ensembl IDs sharing one symbol) -- both break .reindex().
-    symbols_str = feature_name.astype(str)
-    symbol_to_ensembl = pd.Series(symbols_str.index, index=symbols_str.values)
-    symbol_to_ensembl = symbol_to_ensembl[~symbol_to_ensembl.index.duplicated(keep="first")]
-    found = symbol_to_ensembl.reindex(marker_symbols)
-    missing = [s for s, e in zip(marker_symbols, found) if pd.isna(e)]
-    if missing:
-        print(f"  Warning: {len(missing)}/{len(marker_symbols)} Kamath DA marker symbols "
-              f"not found in {source_label}'s var['feature_name']: {missing}")
-    return found.dropna().tolist()
 
 
 def preprocess_merged(adata: ad.AnnData, n_hvgs: int) -> ad.AnnData:
@@ -636,13 +600,13 @@ def main(args: argparse.Namespace) -> None:
                     "var['feature_name'] column to resolve marker gene symbols "
                     "to Ensembl IDs, but it was not found on the loaded Menon cache."
                 )
-            marker_ensembl_ids = _resolve_marker_ensembl_ids(
-                menon_feature_name, _KAMATH_DA_MARKER_SYMBOLS, "Menon"
+            marker_ensembl_ids = resolve_marker_ensembl_ids(
+                menon_feature_name, KAMATH_DA_MARKER_SYMBOLS, "Menon"
             )
             in_markers = merged.var_names.isin(marker_ensembl_ids)
             train_mask = merged.var["highly_variable"].to_numpy() | in_markers
             n_markers_added = int((in_markers & ~merged.var["highly_variable"].to_numpy()).sum())
-            print(f"  {len(marker_ensembl_ids)}/{len(_KAMATH_DA_MARKER_SYMBOLS)} Kamath DA markers "
+            print(f"  {len(marker_ensembl_ids)}/{len(KAMATH_DA_MARKER_SYMBOLS)} Kamath DA markers "
                   f"resolved to Ensembl IDs in the merged panel; {n_markers_added} added beyond the HVG set")
         else:  # "list"
             with open(args.infile_gene_selection) as f:
@@ -664,8 +628,8 @@ def main(args: argparse.Namespace) -> None:
                 "to resolve the DA marker genes for the SAVED (HVG ∪ markers) "
                 "panel, even though training uses --infile-gene-selection instead."
             )
-        marker_ensembl_ids = _resolve_marker_ensembl_ids(
-            menon_feature_name, _KAMATH_DA_MARKER_SYMBOLS, "Menon"
+        marker_ensembl_ids = resolve_marker_ensembl_ids(
+            menon_feature_name, KAMATH_DA_MARKER_SYMBOLS, "Menon"
         )
         save_mask = merged.var["highly_variable"].to_numpy() | merged.var_names.isin(marker_ensembl_ids)
         n_before = merged.n_vars
@@ -898,7 +862,7 @@ if __name__ == "__main__":
              "    sc-rnaseq-wf's own cohort_analysis process task, which\n"
              "    physically discards non-HVG genes the same way.\n"
              "  hvg_u_da_markers  - union of the HVGs and the 17 Kamath et al.\n"
-             "    (Nat Neurosci 2022) DA marker genes (_KAMATH_DA_MARKER_SYMBOLS),\n"
+             "    (Nat Neurosci 2022) DA marker genes (KAMATH_DA_MARKER_SYMBOLS),\n"
              "    so canonical DA identity/subtype markers are never dropped\n"
              "    from training even if HVG selection alone would miss them.\n"
              "  list              - subset to exactly the Ensembl gene IDs listed\n"

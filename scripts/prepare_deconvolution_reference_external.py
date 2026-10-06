@@ -29,8 +29,9 @@ from scipy.sparse import vstack
 repo_root = next(p for p in Path(__file__).resolve().parents if (p / ".git").exists())
 sys.path.insert(0, str(repo_root))
 
-from utils.h5ad_utils import extract_raw_counts
+from utils.h5ad_utils import extract_raw_counts, resolve_marker_ensembl_ids
 from utils.logging_extra import log_run_command
+from utils.genomics_constants import KAMATH_DA_MARKER_SYMBOLS
 
 
 # obs columns to rename in the output reference H5AD (old → new)
@@ -144,7 +145,8 @@ def _load_source_counts(
     Returns
     -------
     tuple
-        (csr_matrix int32, list of var_names, list of matched barcodes)
+        (csr_matrix int32, list of var_names, list of matched barcodes,
+        var['feature_name'] pandas.Series or None if not present)
         The matrix rows match `matched_barcodes` in the same order.
     """
     all_barcodes = _read_barcodes(preqc_h5ad)
@@ -167,9 +169,48 @@ def _load_source_counts(
     preqc = ad.read_h5ad(preqc_h5ad, backed="r")
     subset = preqc[sorted_idx].to_memory()
     var_names = list(subset.var_names)
+    feature_name = subset.var["feature_name"] if "feature_name" in subset.var.columns else None
     counts = extract_raw_counts(subset, source_name=source_name)
 
-    return counts, var_names, matched_barcodes
+    return counts, var_names, matched_barcodes, feature_name
+
+
+def _resolve_da_marker_ensembl_ids(
+    source_feature_names: dict,
+    subset_sources: list,
+) -> list:
+    """
+    Resolve Kamath's 17 DA marker gene symbols to Ensembl IDs via the first
+    source that has a var['feature_name'] column.
+
+    Delegates to `utils.h5ad_utils.resolve_marker_ensembl_ids`; only the "try
+    each source in order" part is new here, since callers elsewhere resolve
+    against a single, fixed source rather than an arbitrary source list.
+
+    Parameters
+    ----------
+    source_feature_names : dict
+        source_name → var['feature_name'] pandas.Series (indexed by Ensembl ID), or None.
+    subset_sources : list
+        Source names to try, in order.
+
+    Returns
+    -------
+    list
+        Ensembl IDs resolved for `KAMATH_DA_MARKER_SYMBOLS`. Unresolved symbols are
+        warned about, not raised on.
+    """
+    for src in subset_sources:
+        feature_name = source_feature_names.get(src)
+        if feature_name is None:
+            continue
+        return resolve_marker_ensembl_ids(feature_name, KAMATH_DA_MARKER_SYMBOLS, src)
+
+    raise ValueError(
+        "--filter-genes cell2location_u_da requires at least one source with a "
+        f"var['feature_name'] column to resolve Kamath DA marker symbols to Ensembl IDs. "
+        f"None of {subset_sources} had one."
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -189,6 +230,7 @@ def prepare_reference(
     output_h5ad: str,
     seed: int,
     promote: bool,
+    filter_genes_mode: str,
 ) -> None:
     """
     Build a multi-source deconvolution reference H5AD.
@@ -221,6 +263,12 @@ def prepare_reference(
         Random seed for sampling.
     promote : bool
         If False, dry-run only.
+    filter_genes_mode : str
+        Gene set to write beyond the raw cross-source intersection:
+        "intersection" : no further filtering.
+        "cell2location_default" : apply cell2location.utils.filtering.filter_genes defaults
+         (cell_count_cutoff=5, cell_percentage_cutoff2=0.03, nonz_mean_cutoff=1.12).
+        "cell2location_u_da" : cell2location_default, unioned with Kamath's 17 DA marker genes.
 
     Returns
     -------
@@ -250,13 +298,15 @@ def prepare_reference(
     source_counts = {}
     source_vars   = {}
     source_barcodes_matched = {}
+    source_feature_names = {}
     for src in subset_sources:
-        counts, var_names, matched = _load_source_counts(
+        counts, var_names, matched, feature_name = _load_source_counts(
             preqc_map[src], source_barcodes[src], src
         )
         source_counts[src] = counts
         source_vars[src]   = var_names
         source_barcodes_matched[src] = matched
+        source_feature_names[src] = feature_name
         print(f"  [{src}] {counts.shape[0]:,} cells × {counts.shape[1]:,} genes")
 
     print("[INFO] Computing gene intersection ...")
@@ -267,7 +317,10 @@ def prepare_reference(
     if not promote:
         n_total = sum(len(bc) for bc in source_barcodes_matched.values())
         print(f"[DRY-RUN] Would write: {output_h5ad}")
-        print(f"          Shape: {n_total:,} cells × {len(shared_genes):,} genes")
+        print(f"          Shape: {n_total:,} cells × {len(shared_genes):,} genes (raw intersection)")
+        if filter_genes_mode != "intersection":
+            print(f"          --filter-genes {filter_genes_mode} will reduce the gene count further; "
+                  "re-run with --promote to see the final number.")
         print("          Re-run with --promote to write the file.")
         return
 
@@ -319,6 +372,32 @@ def prepare_reference(
 
     var_df = pd.DataFrame(index=shared_genes)
     var_df.index.name = "gene_id"
+
+    if filter_genes_mode != "intersection":
+        print(f"[INFO] Applying --filter-genes {filter_genes_mode} ...")
+        import matplotlib
+        matplotlib.use("Agg")
+        from cell2location.utils.filtering import filter_genes as c2l_filter_genes
+
+        filter_adata = ad.AnnData(X=X_combined.copy(), var=var_df.copy())
+        selected = set(c2l_filter_genes(
+            filter_adata, cell_count_cutoff=5, cell_percentage_cutoff2=0.03, nonz_mean_cutoff=1.12
+        ))
+        print(f"  cell2location filter_genes: {len(shared_genes):,} → {len(selected):,} genes")
+
+        if filter_genes_mode == "cell2location_u_da":
+            da_marker_ensembl_ids = _resolve_da_marker_ensembl_ids(source_feature_names, subset_sources)
+            added = [g for g in da_marker_ensembl_ids if g in gene_index and g not in selected]
+            selected.update(added)
+            print(f"  + {len(added)} Kamath DA marker gene(s) added back via union "
+                  f"(present in the gene intersection but dropped by the cell2location filter)")
+
+        shared_genes = [g for g in shared_genes if g in selected]
+        col_idx = np.array([gene_index[g] for g in shared_genes], dtype=np.intp)
+        X_combined = X_combined[:, col_idx]
+        var_df = pd.DataFrame(index=shared_genes)
+        var_df.index.name = "gene_id"
+        print(f"  Final gene set: {len(shared_genes):,} genes")
 
     n_total = X_combined.shape[0]
     print(f"[INFO] Writing {n_total:,} cells × {len(shared_genes):,} genes to {output_h5ad} ...")
@@ -413,6 +492,20 @@ if __name__ == "__main__":
         ),
     )
     parser.add_argument(
+        "--filter-genes",
+        choices=["intersection", "cell2location_default", "cell2location_u_da"],
+        default="intersection",
+        help=(
+            "Gene set to write, beyond the raw cross-source intersection:\n"
+            "  intersection           : no further filtering (default; current behaviour).\n"
+            "  cell2location_default : apply cell2location.utils.filtering.filter_genes\n"
+            "                           with the tutorial's defaults (cell_count_cutoff=5,\n"
+            "                           cell_percentage_cutoff2=0.03, nonz_mean_cutoff=1.12).\n"
+            "  cell2location_u_da    : cell2location_default, unioned with Kamath's 17 DA\n"
+            "                           marker genes."
+        ),
+    )
+    parser.add_argument(
         "--output-h5ad",
         required=True,
         help="Destination path for the deconvolution reference H5AD.",
@@ -456,4 +549,5 @@ if __name__ == "__main__":
         output_h5ad=args.output_h5ad,
         seed=42,
         promote=args.promote,
+        filter_genes_mode=args.filter_genes,
     )

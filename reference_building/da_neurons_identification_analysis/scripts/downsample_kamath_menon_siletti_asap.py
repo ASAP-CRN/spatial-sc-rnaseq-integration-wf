@@ -82,9 +82,12 @@ from _reference_building_utils import (
     _qc_summary_path,
     _sn_cache_path,
     _find_menon_h5ad,
-    extract_raw_counts,
     log_run_command,
 )
+
+_repo_root = next(p for p in Path(__file__).resolve().parents if (p / ".git").exists())
+sys.path.insert(0, str(_repo_root))
+from utils.h5ad_utils import extract_raw_counts
 
 warnings.filterwarnings("ignore", category=FutureWarning)
 warnings.filterwarnings("ignore", message=".*copying X to .raw.*")

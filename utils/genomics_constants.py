@@ -19,3 +19,15 @@ MT_GENE_ENSEMBL_IDS = frozenset({
     "ENSG00000198695",  # MT-ND6
     "ENSG00000198727",  # MT-CYB
 })
+
+# Kamath et al. (Nat Neurosci 2022) DA marker gene symbols. Resolved to
+# Ensembl IDs at runtime via a source's var['feature_name'] (see
+# resolve_marker_ensembl_ids in utils/h5ad_utils.py).
+KAMATH_DA_MARKER_SYMBOLS = (
+    # Pan-DA identity
+    "TH", "SLC6A3", "SLC18A2", "DDC",
+    # Branch markers (the two main DA subdivisions)
+    "SOX6", "CALB1",
+    # Subtype-defining markers (e.g. SOX6_AGTR1, CALB1_GEM)
+    "AGTR1", "DDT", "GFRA2", "PART1", "CALCR", "CRYM", "CCDC68", "GEM", "PPP1R17", "RBP4", "TRHR",
+)
