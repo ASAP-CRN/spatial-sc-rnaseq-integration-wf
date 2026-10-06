@@ -64,8 +64,12 @@ import scanpy as sc
 from cell2location.models import Cell2location, RegressionModel
 from scipy.sparse import issparse
 
-repo_root = next(p for p in Path(__file__).resolve().parents if (p / ".git").exists())
-sys.path.insert(0, str(repo_root))
+# Container builds (docker/cell2location_tools/Dockerfile) copy utils/ next to this
+# script and set PYTHONPATH accordingly, with no .git present. Only add repo_root to
+# sys.path when running from a git clone (local dev); otherwise rely on PYTHONPATH.
+repo_root = next((p for p in Path(__file__).resolve().parents if (p / ".git").exists()), None)
+if repo_root is not None:
+    sys.path.insert(0, str(repo_root))
 
 from utils.accelerator import get_accelerator
 from utils.genomics_constants import MT_GENE_ENSEMBL_IDS
@@ -347,9 +351,9 @@ def _build_reference_signatures(
         labels_key="cell_type",
     )
     ref_model = RegressionModel(adata_ref)
-    ref_model.train(max_epochs=max_epochs, 
-                    accelerator=accelerator, 
-                    early_stopping=True, 
+    ref_model.train(max_epochs=max_epochs,
+                    accelerator=accelerator,
+                    early_stopping=True,
                     early_stopping_monitor="elbo_train")
     _save_training_history_plot(
         ref_model,
