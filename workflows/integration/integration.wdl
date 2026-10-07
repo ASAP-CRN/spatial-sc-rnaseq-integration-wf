@@ -16,15 +16,15 @@ import "../structs.wdl"
 
 workflow integration {
 	meta {
-		description: "Deconvolute per-sample Visium adatas against an scRNA-seq cohort reference using Cell2location"
+		name: "scRNA-seq based spatial deconvolution"
+		category: "Spatial Transcriptomics"
+		description: "Deconvolute per-sample Visium data against an scRNA-seq cohort reference using Cell2location"
 		version: "v1.0.0"
-		author: "DNAstack Bioinformatics Team"
-		email: "bioinformatics@dnastack.com"
+		author: "DNAstack Bioinformatics"
+		email: "support@dnastack.com"
 	}
 
 	input {
-		String cohort_id
-
 		# scRNA-seq cohort reference (used for all spatial samples)
 		File   sc_rnaseq_reference_adata
 
@@ -50,8 +50,8 @@ workflow integration {
 		Int           n_comps
 		Int           n_neighbors
 		Array[Float]  leiden_res
-		Boolean       skip_clustering = false
-		Int           preemptible = 3
+		Boolean       skip_clustering
+		Int           preemptible
 
 		String               raw_data_path
 		String               billing_project
@@ -94,7 +94,6 @@ workflow integration {
 
 	parameter_meta {
 		# Inputs
-		cohort_id:                               {help: "Cohort identifier; used to name output files"}
 		sc_rnaseq_reference_adata:               {help: "cohort_analysis.final_adata_object (.h5ad) — Harmony-integrated, cell-type-annotated AnnData used as the deconvolution reference"}
 		sc_rnaseq_reference_cell2location_model: {help: "Pre-computed inf_aver.csv.gz from a previous run; skips Stage 1 NB regression when provided"}
 		visium_samples:                          {help: "Flat list of Visium per-sample adatas (raw UMI counts, post-QC) to deconvolute independently"}
@@ -145,11 +144,11 @@ task cell2location_visium {
 		Int    n_comps
 		Int    n_neighbors
 		Array[Float] leiden_res
-		Boolean skip_clustering = false
-		Int preemptible = 3
+		Boolean skip_clustering
+		Int preemptible
 
-		String               raw_data_path
-		String               billing_project
+		String               raw_data_path  #!UnusedDeclaration -- reserved for planned output-upload wiring, not yet implemented
+		String               billing_project  #!UnusedDeclaration -- reserved for planned output-upload wiring, not yet implemented
 		String               container_registry
 		String               zones
 	}
@@ -197,11 +196,11 @@ task cell2location_visium {
 		cpu: 8
 		memory: "52 GB"
 		disks: "local-disk " + disk_size + " SSD"
+		preemptible: preemptible
 		bootDiskSizeGb: 40
 		gpuType: "nvidia-tesla-t4"
 		gpuCount: 1
-		nvidiaDriverVersion: "545.23.08" #!UnknownRuntimeKey
-		preemptible: preemptible
+		nvidiaDriverVersion: "545.23.08" #!UnknownRuntimeKey -- GCP Batch ignores this and auto-selects the driver version
 		zones: zones
 	}
 }
