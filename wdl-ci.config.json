@@ -19,13 +19,13 @@
       "tasks": {
         "cell2location_visium": {
           "key": "cell2location_visium",
-          "digest": "2aiqeypm5h4tsfxw6hk63ir3u4pk6lbm",
+          "digest": "",
           "tests": [
             {
               "inputs": {
                 "sample_id": "ASAP_PMBDS_000003_s007_Rep1",
                 "spatial_adata": "${spatial_visium_preprocess_path}/ASAP_PMBDS_000003_s007_Rep1.cleaned_unfiltered.h5ad",
-                "sc_rnaseq_reference_adata": "${sc_rnaseq_input_path}/deconvolution_reference_30k.h5ad",
+                "sc_rnaseq_reference_adata": "${sc_rnaseq_input_path}/deconvolution_reference_30k_c2lUda_KamathRand.h5ad",
                 "batch_key": "${batch_key}",
                 "cell_type_key": "${cell_type_key}",
                 "n_cells_per_spot": "${n_cells_per_spot}",
@@ -178,7 +178,7 @@
         0.4
       ],
       "skip_clustering": true,
-      "preemptible": 0,
+      "preemptible": 3,
       "billing_project": "dnastack-asap-parkinsons",
       "container_registry": "us-central1-docker.pkg.dev/dnastack-asap-parkinsons/workflow-images",
       "zones": "us-central1-c us-central1-f"
