@@ -29,10 +29,9 @@ workflow integration {
 		File   sc_rnaseq_reference_adata
 
 		# Optional pre-computed Cell2location reference signatures (inf_aver.csv.gz).
-		# When provided, Stage 1 NB regression is skipped. When omitted, Stage 1 is
-		# trained from sc_rnaseq_reference_adata (and inf_aver.csv.gz is saved per sample).
+		# Required when run_steps excludes Stage 1 (e.g. "2,3"); ignored otherwise.
 		# TODO: add a dedicated build_reference_signatures task so Stage 1 runs once
-		#       rather than being re-trained in each scatter when no model is pre-provided.
+		#       rather than being re-trained in each scatter when run_steps includes Stage 1.
 		File?  sc_rnaseq_reference_cell2location_model
 
 		# Flat list of per-sample adatas (flattened across projects upstream in main.wdl)
@@ -50,7 +49,9 @@ workflow integration {
 		Int           n_comps
 		Int           n_neighbors
 		Array[Float]  leiden_res
-		Boolean       skip_clustering
+
+		# Which stages to run, as a comma-separated subset of {1,2,3}; see cell2location_visium below
+		String        run_steps
 		Int           preemptible
 
 		String               raw_data_path
@@ -68,25 +69,26 @@ workflow integration {
 				sc_rnaseq_reference_adata               = sc_rnaseq_reference_adata,
 				sc_rnaseq_reference_cell2location_model = sc_rnaseq_reference_cell2location_model,
 				batch_key                               = batch_key,
-				cell_type_key                           = cell_type_key,
+				cell_type_key                            = cell_type_key,
 				n_cells_per_spot                        = n_cells_per_spot,
 				detection_alpha                         = detection_alpha,
 				max_epochs_ref                          = max_epochs_ref,
 				max_epochs_spatial                      = max_epochs_spatial,
 				n_comps                                 = n_comps,
-				n_neighbors                             = n_neighbors,
-				leiden_res                              = leiden_res,
-				skip_clustering                         = skip_clustering,
-				preemptible                             = preemptible,
-				raw_data_path                           = raw_data_path,
-				billing_project                         = billing_project,
+				n_neighbors                              = n_neighbors,
+				leiden_res                               = leiden_res,
+				run_steps                               = run_steps,
+				preemptible                              = preemptible,
+				raw_data_path                            = raw_data_path,
+				billing_project                          = billing_project,
 				container_registry                      = container_registry,
-				zones                                   = zones
+				zones                                    = zones
 		}
 	}
 
 	output {
-		# Array[File] — flat over all samples (across all projects)
+		# Array[File] — flat over all samples (across all projects). Only meaningful when
+		# Stage 2 and/or 3 ran for every sample; see cell2location_visium's output{} note.
 		Array[File]  visium_deconvoluted_adata_objects  = cell2location_visium.deconvoluted_adata_object
 		Array[File]  visium_deconvolution_metadata_csvs = cell2location_visium.deconvolution_metadata_csv
 		Array[Array[File]] visium_inf_aver_csv_gzs       = cell2location_visium.inf_aver_csv_gz
@@ -94,8 +96,8 @@ workflow integration {
 
 	parameter_meta {
 		# Inputs
-		sc_rnaseq_reference_adata:               {help: "cohort_analysis.final_adata_object (.h5ad) — Harmony-integrated, cell-type-annotated AnnData used as the deconvolution reference"}
-		sc_rnaseq_reference_cell2location_model: {help: "Pre-computed inf_aver.csv.gz from a previous run; skips Stage 1 NB regression when provided"}
+		sc_rnaseq_reference_adata:               {help: "cohort_analysis.final_adata_object (.h5ad) — Harmony-integrated, cell-type-annotated AnnData used as the deconvolution reference; required when run_steps includes Stage 1"}
+		sc_rnaseq_reference_cell2location_model: {help: "Pre-computed inf_aver.csv.gz from a previous run; required when run_steps includes Stage 2 without Stage 1"}
 		visium_samples:                          {help: "Flat list of Visium per-sample adatas (raw UMI counts, post-QC) to deconvolute independently"}
 		batch_key:                               {help: "Column in reference .obs used as batch covariate in the NB regression model"}
 		cell_type_key:                           {help: "Column in reference .obs to use as the cell type label"}
@@ -106,7 +108,7 @@ workflow integration {
 		n_comps:                                 {help: "Number of PCA components for downstream spot clustering"}
 		n_neighbors:                             {help: "Neighbourhood size for downstream spot clustering"}
 		leiden_res:                              {help: "Leiden resolutions controlling the coarseness of clustering"}
-		skip_clustering:                         {help: "Skip Stage 3 downstream Leiden clustering; Stage 1/2 outputs are still written"}
+		run_steps:                               {help: "Comma-separated subset of {1,2,3} — which stages to run: 1 = NB regression (reference signatures), 2 = Cell2location spatial mapping, 3 = downstream Leiden clustering. Default '1,2,3' (full pipeline); e.g. '1' builds the reference only, '2,3' loads a pre-computed reference and deconvolutes+clusters, '3' loads a pre-computed deconvolution and clusters only"}
 		preemptible:                             {help: "Number of preemptible-VM attempts before Cromwell falls back to on-demand; 0 forces on-demand from the first attempt. Default 3; use 0 for long production runs where a preemption-triggered restart-from-scratch would be too costly"}
 		raw_data_path:                           {help: "GCS path to raw data bucket; intermediate outputs are stored here"}
 		billing_project:                         {help: "GCP billing project for requester-pays bucket access"}
@@ -116,24 +118,30 @@ workflow integration {
 		# Outputs
 		visium_deconvoluted_adata_objects:  {help: "Cell2location deconvoluted AnnData objects (.h5ad), one per Visium sample"}
 		visium_deconvolution_metadata_csvs: {help: "Per-spot deconvolution metadata CSV (cell type fractions + Leiden clusters), one per Visium sample"}
-		visium_inf_aver_csv_gzs:            {help: "Cell2location reference signatures (<ref_stem>_inf_aver.csv.gz), one per sample that ran Stage 1; empty array per sample when pre-computed model was supplied"}
+		visium_inf_aver_csv_gzs:            {help: "Cell2location reference signatures (<ref_stem>_inf_aver.csv.gz), one per sample that ran Stage 1; empty array per sample when run_steps excludes Stage 1"}
 	}
 }
 
 task cell2location_visium {
 	meta {
-		description: "Deconvolute one Visium sample against the scRNA-seq cohort reference using Cell2location"
+		description: "Deconvolute one Visium sample against the scRNA-seq cohort reference using Cell2location; run_steps selects which of the 3 stages (reference build, deconvolution, clustering) actually run"
 	}
 
 	input {
 		String sample_id
-		File   spatial_adata              # per-sample Visium adata (.h5ad) — raw UMI counts, post-QC
+		File?  spatial_adata              # per-sample Visium adata (.h5ad) — raw UMI counts, post-QC; required when run_steps includes Stage 2
 
-		# Exactly one of the two reference inputs must be provided (validated at runtime):
-		#   sc_rnaseq_reference_adata               → trains Stage 1 NB regression, saves inf_aver.csv.gz
-		#   sc_rnaseq_reference_cell2location_model → loads pre-computed inf_aver.csv.gz, skips Stage 1
+		# Reference input: used only when run_steps includes Stage 1 or Stage 2 (see run_steps below).
+		#   run_steps includes 1            → sc_rnaseq_reference_adata used; trains Stage 1, saves inf_aver.csv.gz
+		#   run_steps includes 2 without 1  → sc_rnaseq_reference_cell2location_model used; loads pre-computed inf_aver.csv.gz
+		#   sc_rnaseq_reference_cell2location_model takes precedence if both happen to be defined.
 		File?  sc_rnaseq_reference_adata
 		File?  sc_rnaseq_reference_cell2location_model
+
+		# Pre-computed Stage 2 output (<sample_id>.deconvoluted.h5ad); required when run_steps
+		# includes Stage 3 without Stage 2. Only meaningful for isolated single-task testing —
+		# not threaded through the integration/main workflows (see run_steps help).
+		File?  spatial_deconvolution_adata
 
 		String batch_key
 		String cell_type_key
@@ -144,7 +152,14 @@ task cell2location_visium {
 		Int    n_comps
 		Int    n_neighbors
 		Array[Float] leiden_res
-		Boolean skip_clustering
+
+		# Comma-separated subset of {1,2,3} — which stages to run: 1 = NB regression
+		# (reference signatures), 2 = Cell2location spatial mapping, 3 = downstream Leiden
+		# clustering. Default "1,2,3" (full pipeline, set in main.wdl); e.g. "1" builds the
+		# reference only (no spatial_adata needed), "2,3" loads a pre-computed reference and
+		# deconvolutes+clusters, "3" loads a pre-computed deconvolution and clusters only
+		# (no reference input needed).
+		String run_steps
 		Int preemptible
 
 		String               raw_data_path  #!UnusedDeclaration -- reserved for planned output-upload wiring, not yet implemented
@@ -153,7 +168,13 @@ task cell2location_visium {
 		String               zones
 	}
 
-	Int disk_size = ceil(size(spatial_adata, "GB") + size(select_first([sc_rnaseq_reference_adata, sc_rnaseq_reference_cell2location_model]), "GB") + 50)
+	Int disk_size = ceil(
+		size(spatial_adata, "GB")
+		+ size(sc_rnaseq_reference_adata, "GB")
+		+ size(sc_rnaseq_reference_cell2location_model, "GB")
+		+ size(spatial_deconvolution_adata, "GB")
+		+ 50
+	)
 	# Fix expected sample_id in outfile name.
 	String corrected_sample_id = sub(sample_id, "^ASAP_PMBDS_", "ASAP_PMDBS_")
 
@@ -165,11 +186,15 @@ task cell2location_visium {
 		export PYTHONPATH=/opt/scripts
 
 		/usr/bin/time -v python3 /opt/scripts/cell2location_deconvolute.py \
+			--run-steps ~{run_steps} \
 			--sample-id ~{sample_id} \
-			--spatial-h5ad ~{spatial_adata} \
+			~{if defined(spatial_adata) then "--spatial-h5ad " + select_first([spatial_adata]) else ""} \
 			~{if defined(sc_rnaseq_reference_cell2location_model)
 			  then "--sc-rnaseq-reference-cell2location-model " + select_first([sc_rnaseq_reference_cell2location_model])
-			  else "--sc-rnaseq-reference-adata " + select_first([sc_rnaseq_reference_adata])} \
+			  else if defined(sc_rnaseq_reference_adata)
+			  then "--sc-rnaseq-reference-adata " + select_first([sc_rnaseq_reference_adata])
+			  else ""} \
+			~{if defined(spatial_deconvolution_adata) then "--spatial-deconvolution-adata " + select_first([spatial_deconvolution_adata]) else ""} \
 			--batch-key ~{batch_key} \
 			--cell-type-key ~{cell_type_key} \
 			--n-cells-per-spot ~{n_cells_per_spot} \
@@ -179,15 +204,18 @@ task cell2location_visium {
 			--n-comps ~{n_comps} \
 			--n-neighbors ~{n_neighbors} \
 			--leiden-res ~{sep=" " leiden_res} \
-			~{if skip_clustering then "--skip-clustering" else ""} \
 			--output-dir . \
 			--promote
 	>>>
 
 	output {
+		# NOTE: these two are never written when run_steps excludes both Stage 2 and 3 (e.g.
+		# run_steps="1") — Cromwell will report this call as failed (output file not found)
+		# even though the script itself exits 0. When testing such a run_steps value, verify
+		# success via stdout/timing.tsv directly rather than this call's pass/fail status.
 		File  deconvoluted_adata_object  = "~{corrected_sample_id}.deconvoluted.h5ad"
 		File  deconvolution_metadata_csv = "~{corrected_sample_id}.deconvolution_metadata.csv.gz"
-		# Non-empty only when Stage 1 ran (sc_rnaseq_reference_adata provided); empty in Mode B.
+		# Non-empty only when run_steps includes Stage 1; empty when a pre-computed model was used.
 		Array[File] inf_aver_csv_gz      = glob("*_inf_aver.csv.gz")
 	}
 

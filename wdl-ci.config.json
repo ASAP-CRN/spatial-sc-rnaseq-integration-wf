@@ -35,7 +35,7 @@
                 "n_comps": "${n_comps}",
                 "n_neighbors": "${n_neighbors}",
                 "leiden_res": "${leiden_res}",
-                "skip_clustering": "${skip_clustering}",
+                "run_steps": "${run_steps}",
                 "preemptible": "${preemptible}",
                 "raw_data_path": "${cohort_raw_data_path}",
                 "billing_project": "${billing_project}",
@@ -177,7 +177,7 @@
         0.2,
         0.4
       ],
-      "skip_clustering": true,
+      "run_steps": "1,2,3",
       "preemptible": 3,
       "billing_project": "dnastack-asap-parkinsons",
       "container_registry": "us-central1-docker.pkg.dev/dnastack-asap-parkinsons/workflow-images",
