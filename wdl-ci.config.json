@@ -19,7 +19,7 @@
       "tasks": {
         "cell2location_visium": {
           "key": "cell2location_visium",
-          "digest": "",
+          "digest": "2aiqeypm5h4tsfxw6hk63ir3u4pk6lbm",
           "tests": [
             {
               "inputs": {
@@ -171,7 +171,12 @@
       "max_epochs_spatial": 11,
       "n_comps": 30,
       "n_neighbors": 15,
-      "leiden_res": [0.05, 0.1, 0.2, 0.4],
+      "leiden_res": [
+        0.05,
+        0.1,
+        0.2,
+        0.4
+      ],
       "skip_clustering": true,
       "preemptible": 0,
       "billing_project": "dnastack-asap-parkinsons",
