@@ -44,14 +44,14 @@
               },
               "output_tests": {
                 "deconvoluted_adata_object": {
-                  "value": "${input_resources_file_path}/${cohort_workflow_name}/ASAP_PMBDS_000003_s007_Rep1.deconvoluted.h5ad",
+                  "value": "${input_resources_file_path}/${cohort_workflow_name}/ASAP_PMDBS_000003_s007_Rep1.deconvoluted.h5ad",
                   "test_tasks": [
                     "compare_file_basename",
                     "check_hdf5"
                   ]
                 },
                 "deconvolution_metadata_csv": {
-                  "value": "${input_resources_file_path}/${cohort_workflow_name}/ASAP_PMBDS_000003_s007_Rep1.deconvolution_metadata.csv",
+                  "value": "${input_resources_file_path}/${cohort_workflow_name}/ASAP_PMDBS_000003_s007_Rep1.deconvolution_metadata.csv.gz",
                   "test_tasks": [
                     "compare_file_basename",
                     "check_empty_lines",

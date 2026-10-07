@@ -23,7 +23,7 @@ Outputs
 -------
 {sample_id}.deconvoluted.h5ad
     Spatial AnnData with Cell2location results in .obsm and per-spot fraction in .obs.
-{sample_id}.deconvolution_metadata.csv
+{sample_id}.deconvolution_metadata.csv.gz
     Per-spot table: cell type fractions + obs columns for downstream reporting.
 {ref_stem}_inf_aver.csv.gz
     Reference signatures (genes × cell types); only written when --sc-rnaseq-reference-adata
@@ -609,7 +609,7 @@ def deconvolute_visium(
     if not build_reference_only:
         sample_id = _correct_sample_id(sample_id)
         out_h5ad  = os.path.join(output_dir, f"{sample_id}.deconvoluted.h5ad")
-        out_csv   = os.path.join(output_dir, f"{sample_id}.deconvolution_metadata.csv")
+        out_csv   = os.path.join(output_dir, f"{sample_id}.deconvolution_metadata.csv.gz")
 
     if not promote:
         print(f"[DRY-RUN] Would write:")
@@ -685,7 +685,7 @@ def deconvolute_visium(
         + [c for c in adata_spatial.obs.columns if c.startswith("leiden_")]
         + [c for c in adata_spatial.obs.columns if not c.startswith("frac_") and not c.startswith("leiden_")]
     )
-    adata_spatial.obs[meta_cols].to_csv(out_csv)
+    adata_spatial.obs[meta_cols].to_csv(out_csv, compression="gzip")
     print(f"[INFO] Writing {out_csv} ...")
     timing.append(("write_outputs", time.time() - t0))
     timing.append(("total", time.time() - t_total))
