@@ -38,7 +38,7 @@ workflow spatial_sc_rnaseq_integration {
 		Array[SpatialVisiumProject] spatial_visium_projects = []
 
 		# Optional pre-computed Cell2location reference signatures (inf_aver.csv.gz).
-		# Required when run_steps excludes Stage 1 (e.g. "2,3"); ignored otherwise.
+		# Required when run_stages excludes Stage 1 (e.g. "2,3"); ignored otherwise.
 		File? sc_rnaseq_reference_cell2location_model
 
 		# Cell2location deconvolution parameters
@@ -55,7 +55,7 @@ workflow spatial_sc_rnaseq_integration {
 		Array[Float] leiden_res = [0.05, 0.1, 0.2, 0.4]
 
 		# Which stages to run, as a comma-separated subset of {1,2,3}; see Integration.integration
-		String run_steps = "1,2,3"
+		String run_stages = "1,2,3"
 		Int preemptible = 3
 
 		String cohort_raw_data_bucket_spatial_sc_rnaseq
@@ -92,7 +92,7 @@ workflow spatial_sc_rnaseq_integration {
 			n_comps                                  = n_comps,
 			n_neighbors                              = n_neighbors,
 			leiden_res                               = leiden_res,
-			run_steps                                = run_steps,
+			run_stages                                = run_stages,
 			preemptible                               = preemptible,
 			raw_data_path                            = cohort_raw_data_bucket_spatial_sc_rnaseq,
 			billing_project                          = get_workflow_metadata.billing_project,
@@ -112,7 +112,7 @@ workflow spatial_sc_rnaseq_integration {
 		# Inputs
 		sc_rnaseq_projects:                      {help: "Processed scRNA-seq cohort outputs (from sc-rnaseq-wf cohort_analysis); the first project's final_adata_object is used as the deconvolution reference for all spatial samples"}
 		spatial_visium_projects:                 {help: "Processed spatial outputs (from spatial-transcriptomics-wf); samples are flattened across projects and deconvoluted independently"}
-		sc_rnaseq_reference_cell2location_model: {help: "Pre-computed inf_aver.csv.gz from a previous run; required when run_steps excludes Stage 1 (e.g. '2,3')"}
+		sc_rnaseq_reference_cell2location_model: {help: "Pre-computed inf_aver.csv.gz from a previous run; required when run_stages excludes Stage 1 (e.g. '2,3')"}
 		batch_key:                               {help: "Column in reference .obs used as batch covariate in the NB regression model"}
 		cell_type_key:                           {help: "Column in reference .obs to use as the cell type label"}
 		n_cells_per_spot:                        {help: "Cell2location N_cells_per_location prior; 8 for brain Visium"}
@@ -122,7 +122,7 @@ workflow spatial_sc_rnaseq_integration {
 		n_comps:                                 {help: "Number of PCA components for downstream spot clustering"}
 		n_neighbors:                             {help: "Neighbourhood size for downstream spot clustering"}
 		leiden_res:                              {help: "Leiden resolutions controlling the coarseness of clustering"}
-		run_steps:                               {help: "Comma-separated subset of {1,2,3} — which stages to run: 1 = NB regression (reference signatures), 2 = Cell2location spatial mapping, 3 = downstream Leiden clustering. Default '1,2,3' (full pipeline); e.g. '1' builds the reference only, '2,3' loads a pre-computed reference and deconvolutes+clusters, '3' loads a pre-computed deconvolution and clusters only"}
+		run_stages:                               {help: "Comma-separated subset of {1,2,3} — which stages to run: 1 = NB regression (reference signatures), 2 = Cell2location spatial mapping, 3 = downstream Leiden clustering. Default '1,2,3' (full pipeline); e.g. '1' builds the reference only, '2,3' loads a pre-computed reference and deconvolutes+clusters, '3' loads a pre-computed deconvolution and clusters only"}
 		preemptible:                             {help: "Number of preemptible-VM attempts before Cromwell falls back to on-demand; 0 forces on-demand from the first attempt. Default 3; use 0 for long production runs where a preemption-triggered restart-from-scratch would be too costly"}
 		cohort_raw_data_bucket_spatial_sc_rnaseq: {help: "GCS path to raw data bucket; intermediate outputs are stored here"}
 		container_registry:                      {help: "Container registry hosting workflow Docker images"}
@@ -131,6 +131,6 @@ workflow spatial_sc_rnaseq_integration {
 		# Outputs
 		visium_deconvoluted_adata_objects:  {help: "Cell2location deconvoluted AnnData objects (.h5ad), one per Visium sample"}
 		visium_deconvolution_metadata_csvs: {help: "Per-spot deconvolution metadata CSV (cell type fractions + Leiden clusters), one per Visium sample"}
-		visium_inf_aver_csv_gzs:            {help: "Cell2location reference signatures (<ref_stem>_inf_aver.csv.gz), one per sample that ran Stage 1; empty array per sample when run_steps excludes Stage 1"}
+		visium_inf_aver_csv_gzs:            {help: "Cell2location reference signatures (<ref_stem>_inf_aver.csv.gz), one per sample that ran Stage 1; empty array per sample when run_stages excludes Stage 1"}
 	}
 }

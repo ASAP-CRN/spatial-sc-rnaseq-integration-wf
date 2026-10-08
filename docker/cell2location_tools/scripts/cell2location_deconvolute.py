@@ -3,61 +3,41 @@
 Deconvolute one spatial transcriptomics sample using Cell2location against an scRNA-seq reference.
 Only Visium is supported in this version.
 
-Steps
+Stages
 -----
 1. Build NB regression model on scRNA-seq reference to estimate cell type signatures.
 2. Map cell types onto spatial spots using Cell2location.
-3. (Optional) Cluster spots by cell type abundance using Leiden.
+3. Cluster spots by cell type abundance using Leiden.
 
-Inputs
-------
---run-steps                               Which stages to run: any non-empty subset of {1, 2, 3}.
-                                          Default: 1 2 3 (full pipeline). See below.
---sample-id                               Spatial sample identifier. Required when 2 and/or 3 is in --run-steps.
---spatial-h5ad                            Per-sample Visium adata path (raw UMI counts, post-QC from `spatial-transcriptomics-wf`).
-                                          Required when 2 is in --run-steps.
---sc-rnaseq-reference-adata               scRNA-seq reference h5ad. Required when 1 is in --run-steps.
---sc-rnaseq-reference-cell2location-model Pre-computed inf_aver.csv.gz. Required when 2 is in --run-steps without 1.
---spatial-deconvolution-adata             Pre-computed <sample_id>.deconvoluted.h5ad from a prior Stage 2 run.
-                                          Required when 3 is in --run-steps without 2.
-
---run-steps examples
+--run-stages examples
 ---------------------
 1,2,3 (default)  Full pipeline.
 1                Build reference only, then exit. No spatial input needed.
-2,3              Load a pre-computed reference (--sc-rnaseq-reference-cell2location-model),
-                 deconvolute, then cluster.
-2                Load a pre-computed reference, deconvolute, skip clustering.
-3                Load a pre-computed deconvolution (--spatial-deconvolution-adata), cluster only.
 1,2              Train reference, deconvolute, skip clustering.
+2,3              Load a pre-computed reference, deconvolute, then cluster.
+2                Load a pre-computed reference, deconvolute, skip clustering.
+3                Load a pre-computed deconvolution, cluster only.
 
 Outputs
 -------
 {sample_id}.deconvoluted.h5ad
     Spatial AnnData with Cell2location results in .obsm and per-spot fraction in .obs.
-    Only written when 2 and/or 3 is in --run-steps.
+    Only written when 2 and/or 3 is in --run-stages.
 {sample_id}.deconvolution_metadata.csv.gz
     Per-spot table: cell type fractions + obs columns for downstream reporting.
-    Only written when 2 and/or 3 is in --run-steps.
+    Only written when 2 and/or 3 is in --run-stages.
 {ref_stem}_inf_aver.csv.gz
-    Reference signatures (genes × cell types); only written when 1 is in --run-steps.
+    Reference signatures (genes × cell types); only written when 1 is in --run-stages.
     {ref_stem} is the stem of the reference h5ad filename.
 stage1_ref_training_history.png / stage2_spatial_training_history.png
     ELBO training-loss curves for each stage, for convergence inspection. Each plot is
-    only written when that stage actually trains (i.e. 1, resp. 2, is in --run-steps).
-
-Usage (dry-run)
----------------
-cell2location_deconvolute \\
-    --sample-id SAMPLE001 \\
-    --spatial-h5ad sample.qc.h5ad \\
-    --sc-rnaseq-reference-adata final_all_genes.h5ad \\
-    --spatial-technology visium \\
-    --output-dir results/
-
-Usage (write outputs)
----------------------
-cell2location_deconvolute ... --promote
+    only written when that stage actually trains (i.e. 1, resp. 2, is in --run-stages).
+{sample_id}.timing.tsv / {ref_stem}_ref_build.timing.tsv
+    Per-step duration (seconds) for each stage that ran; skipped stages are recorded as
+    0.0 under a "_skipped" step name. {ref_stem} is used instead of {sample_id} in
+    Stage 1-only mode (--run-stages 1 with neither 2 nor 3).
+cell2location_deconvolute.log
+    The exact command invocation, for provenance.
 """
 
 import argparse
@@ -568,7 +548,7 @@ def deconvolute_visium(
     accelerator: str,
     output_dir: str,
     promote: bool,
-    run_steps: set,
+    run_stages: set,
     keep_checkpoints: bool = False,
 ) -> None:
     """
@@ -578,18 +558,18 @@ def deconvolute_visium(
     ----------
     sample_id : str
         Sample identifier; "ASAP_PMBDS_" is auto-corrected to "ASAP_PMDBS_".
-        Required when Stage 2 and/or 3 is in `run_steps`.
+        Required when Stage 2 and/or 3 is in `run_stages`.
     spatial_h5ad : str
         Per-sample Visium adata path (raw UMI counts, post-QC from `spatial-transcriptomics-wf`).
-        Required when Stage 2 is in `run_steps`.
+        Required when Stage 2 is in `run_stages`.
     ref_h5ad : str or None
-        scRNA-seq reference h5ad. Required when Stage 1 is in `run_steps`.
+        scRNA-seq reference h5ad. Required when Stage 1 is in `run_stages`.
     reference_model : str or None
-        Pre-computed `<ref_stem>_inf_aver.csv.gz`. Required when Stage 2 is in `run_steps`
+        Pre-computed `<ref_stem>_inf_aver.csv.gz`. Required when Stage 2 is in `run_stages`
         without Stage 1.
     spatial_deconvolution_adata : str or None
         Pre-computed `.deconvoluted.h5ad` from a prior Stage 2 run. Required when Stage 3
-        is in `run_steps` without Stage 2.
+        is in `run_stages` without Stage 2.
     batch_key : str
         Obs column used as batch covariate in NB regression.
     cell_type_key : str
@@ -616,10 +596,10 @@ def deconvolute_visium(
         Directory to write output files.
     promote : bool
         If False, print plan without writing any files.
-    run_steps : set of int
+    run_stages : set of int
         Non-empty subset of {1, 2, 3} — which stages to run this invocation:
         1 = NB regression (reference signatures), 2 = Cell2location spatial mapping,
-        3 = downstream Leiden clustering. A stage not in `run_steps` is skipped, and
+        3 = downstream Leiden clustering. A stage not in `run_stages` is skipped, and
         whichever stage would normally feed it must instead be supplied directly:
         `reference_model` substitutes for Stage 1's output, `spatial_deconvolution_adata`
         substitutes for Stage 2's output.
@@ -630,9 +610,9 @@ def deconvolute_visium(
     -------
     None
     """
-    run_stage1 = 1 in run_steps
-    run_stage2 = 2 in run_steps
-    run_stage3 = 3 in run_steps
+    run_stage1 = 1 in run_stages
+    run_stage2 = 2 in run_stages
+    run_stage3 = 3 in run_stages
     write_sample_outputs = run_stage2 or run_stage3
 
     out_inf_aver = (
@@ -739,66 +719,66 @@ def main() -> None:
     deconv_adata = args.spatial_deconvolution_adata
 
     try:
-        run_steps = {int(s) for s in args.run_steps.split(",")}
+        run_stages = {int(s) for s in args.run_stages.split(",")}
     except ValueError:
         raise SystemExit(
-            f"error: --run-steps must be a comma-separated list of integers from {{1,2,3}}, "
-            f"got '{args.run_steps}'."
+            f"error: --run-stages must be a comma-separated list of integers from {{1,2,3}}, "
+            f"got '{args.run_stages}'."
         )
-    if not run_steps or not run_steps.issubset({1, 2, 3}):
+    if not run_stages or not run_stages.issubset({1, 2, 3}):
         raise SystemExit(
-            f"error: --run-steps must be a non-empty comma-separated subset of {{1,2,3}}, "
-            f"got '{args.run_steps}'."
+            f"error: --run-stages must be a non-empty comma-separated subset of {{1,2,3}}, "
+            f"got '{args.run_stages}'."
         )
-    run_stage1 = 1 in run_steps
-    run_stage2 = 2 in run_steps
-    run_stage3 = 3 in run_steps
+    run_stage1 = 1 in run_stages
+    run_stage2 = 2 in run_stages
+    run_stage3 = 3 in run_stages
 
     # Reference signatures: either Stage 1 trains them (ref_adata), or Stage 2 loads a
     # pre-computed model (ref_model) when Stage 1 is not run.
     if run_stage1:
         if not ref_adata:
-            raise SystemExit("error: --sc-rnaseq-reference-adata is required when Stage 1 is in --run-steps.")
+            raise SystemExit("error: --sc-rnaseq-reference-adata is required when Stage 1 is in --run-stages.")
         if ref_model:
-            raise SystemExit("error: --sc-rnaseq-reference-cell2location-model is ignored when Stage 1 is in --run-steps.")
+            raise SystemExit("error: --sc-rnaseq-reference-cell2location-model is ignored when Stage 1 is in --run-stages.")
     else:
         if ref_adata:
-            raise SystemExit("error: --sc-rnaseq-reference-adata is ignored when Stage 1 is not in --run-steps.")
+            raise SystemExit("error: --sc-rnaseq-reference-adata is ignored when Stage 1 is not in --run-stages.")
         if run_stage2:
             if not ref_model:
                 raise SystemExit(
                     "error: --sc-rnaseq-reference-cell2location-model is required when Stage 2 "
-                    "is in --run-steps without Stage 1."
+                    "is in --run-stages without Stage 1."
                 )
         elif ref_model:
             raise SystemExit(
                 "error: --sc-rnaseq-reference-cell2location-model is only used when Stage 2 "
-                "is in --run-steps without Stage 1."
+                "is in --run-stages without Stage 1."
             )
 
     # Raw spatial input: only consumed by Stage 2.
     if run_stage2:
         if not args.spatial_h5ad:
-            raise SystemExit("error: --spatial-h5ad is required when Stage 2 is in --run-steps.")
+            raise SystemExit("error: --spatial-h5ad is required when Stage 2 is in --run-stages.")
     elif args.spatial_h5ad:
-        raise SystemExit("error: --spatial-h5ad is only used when Stage 2 is in --run-steps.")
+        raise SystemExit("error: --spatial-h5ad is only used when Stage 2 is in --run-stages.")
 
     # Pre-computed Stage 2 output: only consumed by Stage 3 when Stage 2 doesn't run.
     if run_stage3 and not run_stage2:
         if not deconv_adata:
             raise SystemExit(
                 "error: --spatial-deconvolution-adata is required when Stage 3 is in "
-                "--run-steps without Stage 2."
+                "--run-stages without Stage 2."
             )
     elif deconv_adata:
         raise SystemExit(
             "error: --spatial-deconvolution-adata is only used when Stage 3 is in "
-            "--run-steps without Stage 2."
+            "--run-stages without Stage 2."
         )
 
     # sample_id names the per-sample output files, needed whenever Stage 2 and/or 3 runs.
     if (run_stage2 or run_stage3) and not args.sample_id:
-        raise SystemExit("error: --sample-id is required when Stage 2 and/or 3 is in --run-steps.")
+        raise SystemExit("error: --sample-id is required when Stage 2 and/or 3 is in --run-stages.")
 
     log_run_command(Path(args.output_dir) / f"{Path(sys.argv[0]).stem}.log")
 
@@ -823,7 +803,7 @@ def main() -> None:
         accelerator        = args.accelerator,
         output_dir         = args.output_dir,
         promote              = args.promote,
-        run_steps          = run_steps,
+        run_stages          = run_stages,
         keep_checkpoints     = args.keep_checkpoints,
     )
 
@@ -833,79 +813,84 @@ def _parse_args() -> argparse.Namespace:
         description=__doc__,
         formatter_class=argparse.RawTextHelpFormatter,
     )
-    parser.add_argument("--run-steps",                    type=str, default="1,2,3",
+
+    general = parser.add_argument_group("General (always applicable)")
+    general.add_argument("--run-stages",                   type=str, default="1,2,3",
         help="Comma-separated subset of {1,2,3} — which stages to run this invocation:\n"
-             "1 = NB regression (reference signatures), 2 = Cell2location spatial mapping,\n"
-             "3 = downstream Leiden clustering. A stage not listed is skipped, and whichever\n"
-             "stage would normally feed it must be supplied directly instead:\n"
-             "--sc-rnaseq-reference-cell2location-model stands in for Stage 1's output (when\n"
-             "2 is given without 1), --spatial-deconvolution-adata stands in for Stage 2's\n"
-             "output (when 3 is given without 2). Default: 1,2,3 (full pipeline).\n"
-             "Examples: '1' (build reference only, then exit — no spatial input needed),\n"
-             "'2,3' (load a pre-computed reference, deconvolute, cluster),\n"
-             "'3' (load a pre-computed deconvolution, cluster only).")
-    parser.add_argument("--sample-id",                    default=None,
-        help="Spatial sample identifier. 'ASAP_PMBDS_' is auto-corrected to 'ASAP_PMDBS_'.\n"
-             "Required when Stage 2 and/or 3 is in --run-steps.")
-    parser.add_argument("--spatial-h5ad",                default=None,
-        help="Per-sample spatial h5ad (raw UMI counts, post-QC).\n"
-             "Required when Stage 2 is in --run-steps.")
-    parser.add_argument("--sc-rnaseq-reference-adata",    default=None,
+             "1 = NB regression (reference signatures)\n"
+             "2 = Cell2location spatial mapping,\n"
+             "3 = downstream Leiden clustering.\n"
+             "Default: 1,2,3 (full pipeline).\n")
+    general.add_argument("--output-dir",                  default=".",
+        help="Directory to write output files. Default: current directory")
+    general.add_argument("--promote",                     action="store_true", default=False,
+        help="Write output files. Default is dry-run (prints what would happen).")
+
+    stage1 = parser.add_argument_group("Stage 1 — NB regression (reference signatures)")
+    stage1.add_argument("--sc-rnaseq-reference-adata",    default=None,
         help="scRNA-seq reference h5ad (QC-filtered cells × all genes, raw counts).\n"
              "Trains Stage 1 NB regression and saves <ref_stem>_inf_aver.csv.gz to --output-dir.\n"
-             "Required when Stage 1 is in --run-steps.")
-    parser.add_argument("--sc-rnaseq-reference-cell2location-model", default=None,
-        help="Path to a pre-computed scRNA-seq reference signatures file <ref_stem>_inf_aver.csv.gz produced by a previous run.\n"
-             "Required when Stage 2 is in --run-steps without Stage 1.")
-    parser.add_argument("--spatial-deconvolution-adata",  default=None,
-        help="Path to a pre-computed <sample_id>.deconvoluted.h5ad from a prior Stage 2 run.\n"
-             "Required when Stage 3 is in --run-steps without Stage 2.")
-    parser.add_argument("--spatial-technology",           default="visium",
-        choices=["visium"],
-        help="Spatial technology. Currently only visium is supported.")
-    parser.add_argument("--batch-key",                    default="batch_id",
+             "Required when Stage 1 is in --run-stages.")
+    stage1.add_argument("--batch-key",                    default="batch_id",
         help="Obs column used as batch covariate in the NB regression model.\n"
              "Default: batch_id")
-    parser.add_argument("--cell-type-key",                default="cell_type_pred",
+    stage1.add_argument("--cell-type-key",                default="cell_type_pred",
         help="Column in the reference .obs to use as the cell type label.\n"
              "Default: cell_type_pred")
-    parser.add_argument("--min-cells-per-type",           type=int, default=10,
+    stage1.add_argument("--min-cells-per-type",           type=int, default=10,
         help="Drop reference cell types with fewer than this many cells before\n"
              "training. scvi-tools warns NB regression may not train properly\n"
              "for categories with fewer than 3 cells. Default: 10")
-    parser.add_argument("--n-comps",                      type=int, default=30,
-        help="PCA components for downstream spot clustering. Default: 30")
-    parser.add_argument("--n-neighbors",                  type=int, default=15,
-        help="Neighbourhood size for downstream spot clustering. Default: 15")
-    parser.add_argument("--leiden-res",                   type=float, nargs="+",
-        default=[0.05, 0.1, 0.2, 0.4],
-        help="Leiden resolutions for downstream spot clustering. Default: 0.05 0.1 0.2 0.4")
-    parser.add_argument("--n-cells-per-spot",             type=int, default=_CELLS_PER_SPOT,
+    stage1.add_argument("--max-epochs-ref",               type=int, default=_EPOCHS_REF,
+        help=f"NB regression training epochs. Default: {_EPOCHS_REF}")
+
+    stage2 = parser.add_argument_group("Stage 2 — Cell2location spatial mapping")
+    stage2.add_argument("--spatial-h5ad",                 default=None,
+        help="Per-sample spatial h5ad (raw UMI counts, post-QC).\n"
+             "Required when Stage 2 is in --run-stages.")
+    stage2.add_argument("--sc-rnaseq-reference-cell2location-model", default=None,
+        help="Path to a pre-computed scRNA-seq reference signatures file <ref_stem>_inf_aver.csv.gz produced by a previous run.\n"
+             "Required when Stage 2 is in --run-stages without Stage 1.")
+    stage2.add_argument("--n-cells-per-spot",             type=int, default=_CELLS_PER_SPOT,
         help=f"Cell2location N_cells_per_location prior. Default: {_CELLS_PER_SPOT}")
-    parser.add_argument("--detection-alpha",              type=int, default=_DETECTION_ALPHA,
+    stage2.add_argument("--detection-alpha",              type=int, default=_DETECTION_ALPHA,
         help=f"Cell2location detection rate prior (tutorial range 20–200).\n"
              f"Higher values assume low technical variability in RNA detection.\n"
              f"Default: {_DETECTION_ALPHA}")
-    parser.add_argument("--max-epochs-ref",               type=int, default=_EPOCHS_REF,
-        help=f"NB regression training epochs. Default: {_EPOCHS_REF}")
-    parser.add_argument("--max-epochs-spatial",           type=int, default=_EPOCHS_SPATIAL,
+    stage2.add_argument("--max-epochs-spatial",           type=int, default=_EPOCHS_SPATIAL,
         help=f"Cell2location training epochs. Default: {_EPOCHS_SPATIAL}")
-    parser.add_argument("--accelerator",                  default=_ACCELERATOR,
+
+    stage3 = parser.add_argument_group("Stage 3 — downstream Leiden clustering")
+    stage3.add_argument("--n-comps",                      type=int, default=30,
+        help="PCA components for downstream spot clustering. Default: 30")
+    stage3.add_argument("--n-neighbors",                  type=int, default=15,
+        help="Neighbourhood size for downstream spot clustering. Default: 15")
+    stage3.add_argument("--leiden-res",                   type=float, nargs="+",
+        default=[0.05, 0.1, 0.2, 0.4],
+        help="Leiden resolutions for downstream spot clustering. Default: 0.05 0.1 0.2 0.4")
+    stage3.add_argument("--spatial-deconvolution-adata",  default=None,
+        help="Path to a pre-computed <sample_id>.deconvoluted.h5ad from a prior Stage 2 run.\n"
+             "Required when Stage 3 is in --run-stages without Stage 2.")
+
+    multistage = parser.add_argument_group("Multi-stage (Stage 1 or 2, and Stage 2 or 3)")
+    multistage.add_argument("--sample-id",                default=None,
+        help="Spatial sample identifier. 'ASAP_PMBDS_' is auto-corrected to 'ASAP_PMDBS_'.\n"
+             "Required when Stage 2 and/or 3 is in --run-stages.")
+    multistage.add_argument("--accelerator",              default=_ACCELERATOR,
         help=f"PyTorch Lightning accelerator: 'mps' (Apple Silicon), 'gpu' (CUDA), 'cpu'.\n"
-             f"Default: {_ACCELERATOR}")
-    parser.add_argument("--output-dir",                   default=".",
-        help="Directory to write output files. Default: current directory")
-    parser.add_argument("--promote",                      action="store_true", default=False,
-        help="Write output files. Default is dry-run (prints what would happen).")
-    parser.add_argument("--posterior-num-samples",                  type=int, default=_REF_N_SAMPLES,
-        help=f"Posterior samples drawn during export_posterior. Reduce to lower peak RAM\n"
-             f"(e.g. 200–300) at the cost of noisier estimates. Default: {_REF_N_SAMPLES}")
-    parser.add_argument("--posterior-batch-size",         type=int, default=_REF_BATCH_SIZE,
-        help=f"Batch size for posterior sampling. Reduce to lower peak RAM\n"
-             f"(e.g. 500–1000). Default: {_REF_BATCH_SIZE}")
-    parser.add_argument("--keep-checkpoints",             action="store_true", default=False,
+             f"Used by Stage 1 and/or Stage 2 training. Default: {_ACCELERATOR}")
+    multistage.add_argument("--posterior-num-samples",    type=int, default=_REF_N_SAMPLES,
+        help=f"Posterior samples drawn during export_posterior. Used by Stage 1 and/or Stage 2.\n"
+             f"Reduce to lower peak RAM (e.g. 200–300) at the cost of noisier estimates.\n"
+             f"Default: {_REF_N_SAMPLES}")
+    multistage.add_argument("--posterior-batch-size",     type=int, default=_REF_BATCH_SIZE,
+        help=f"Batch size for posterior sampling. Used by Stage 1 and/or Stage 2.\n"
+             f"Reduce to lower peak RAM (e.g. 500–1000). Default: {_REF_BATCH_SIZE}")
+    multistage.add_argument("--keep-checkpoints",         action="store_true", default=False,
         help="Retain model checkpoint directories and intermediate posterior h5ad files\n"
-             "after each stage. Useful for debugging. Default: remove on success.")
+             "after each stage. Used by Stage 1 and/or Stage 2. Useful for debugging.\n"
+             "Default: remove on success.")
+
     return parser.parse_args()
 
 
