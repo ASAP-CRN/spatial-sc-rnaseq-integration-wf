@@ -58,13 +58,13 @@ workflow spatial_sc_rnaseq_integration {
 		String zones = "us-central1-c us-central1-f"
 	}
 
+	# scRNA-seq reference: use first project (expected to be the cross-team cohort)
+	File sc_rnaseq_reference_adata = sc_rnaseq_projects[0].final_adata_object
+
 	call GetWorkflowMetadata.get_workflow_metadata {
 		input:
 			zones = zones
 	}
-
-	# scRNA-seq reference: use first project (expected to be the cross-team cohort)
-	File sc_rnaseq_reference_adata = sc_rnaseq_projects[0].final_adata_object
 
 	# Flatten per-sample data across all projects (WDL 1.0: scatter then flatten)
 	scatter (project in spatial_visium_projects) {
