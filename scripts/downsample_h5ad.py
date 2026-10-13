@@ -1,14 +1,5 @@
-"""
-Proportional contiguous-block downsample of an h5ad file.
-
-Reads only obs metadata to detect a grouping column, samples a contiguous
-block of cells per group (minimises random HDF5 seeks), and writes a
-compressed h5ad.
-
-Output: {input_dir}/{input_stem}_rand_{n}.h5ad
-
-Dry-run by default; pass --promote to write.
-"""
+"""Downsample an h5ad to n_cells via contiguous per-group blocks (minimises HDF5 seeks).
+Output: {input_dir}/{input_stem}_rand_{n}.h5ad."""
 
 import sys
 import argparse
@@ -27,10 +18,7 @@ _MAX_CATEGORIES = 500
 def _detect_grouping_col(obs):
     """
     Detect a suitable categorical column for grouping cells.
-
-    Prefers columns with dtype "category" and 2–500 unique values.
-    Among those, columns whose name contains batch/sample/donor/id are
-    ranked first.
+    Prefers columns with dtype "category".
 
     Parameters
     ----------

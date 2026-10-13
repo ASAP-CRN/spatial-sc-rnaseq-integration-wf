@@ -1,20 +1,7 @@
 #!/usr/bin/env python3
-"""
-Build a multi-source 'reference' H5AD from an 'integrated' H5AD (e.g., including Siletti, Kamath, ASAP cohort),
-which has only HVG's, and their corresponding all-gene H5ADs.
-
-The resulting 'reference' will have all-genes intersecting across sources and cells (Ensembl IDs).
-
-Usage (dry-run, default)
-------------------------
-python3 scripts/prepare_deconvolution_reference_external.py \\
-    --integrated-h5ad /path/to/integrated.h5ad \\
-    --source-preqc-h5ads \\
-        asap_cohort=/path/to/asap_cohort_preQC.h5ad \\
-        kamath=/path/to/kamath_preQC.h5ad \\
-        siletti=/path/to/siletti_preQC.h5ad \\
-    --output-h5ad /path/to/deconv_reference.h5ad
-"""
+"""Build a multi-source deconvolution reference H5AD from an integrated (HVG-only) H5AD plus
+each source's all-gene preQC H5AD, intersecting genes (Ensembl IDs) and cells across sources.
+The resulting 'reference' will have all cells in the reference H5AD and all-genes intersecting across sources."""
 
 import argparse
 import os
@@ -41,10 +28,6 @@ _RENAME_OBS_COLS = {
 
 _BATCH_COL = "batch_id"  # obs column used for per-batch cell-count filtering
 
-
-# ---------------------------------------------------------------------------
-# Helpers
-# ---------------------------------------------------------------------------
 
 def _obs_index_key(h5ad_path: str) -> str:
     """Return the obs index column name stored in the H5AD file attrs."""
@@ -213,10 +196,6 @@ def _resolve_da_marker_ensembl_ids(
     )
 
 
-# ---------------------------------------------------------------------------
-# Main
-# ---------------------------------------------------------------------------
-
 def prepare_reference(
     integrated_h5ad: str,
     preqc_map: dict,
@@ -238,12 +217,11 @@ def prepare_reference(
     Parameters
     ----------
     integrated_h5ad : str
-        Path to the scVI/scANVI integrated H5AD (backed; only obs accessed).
+        scVI/scANVI integrated H5AD (backed; only obs accessed).
     preqc_map : dict
         source_name → path to preQC H5AD with all-gene raw counts.
     subset_sources : list
-        Source names to include (must be keys in `preqc_map` and values in
-        obs[source_col] of the integrated H5AD).
+        Source names to include (must be keys in `preqc_map` and values in obs[source_col]).
     n_cells : int
         Target cells per source.
     source_col : str
@@ -253,10 +231,9 @@ def prepare_reference(
     rename_obs_cols : dict
         old_name → new_name renames applied to obs before writing.
     min_cells_per_batch : int
-        Drop cells whose `_BATCH_COL` group has fewer than this many cells.
-        0 disables filtering.
+        Drop cells whose `_BATCH_COL` group has fewer than this many cells. 0 disables filtering.
     cell_type_key : str
-        obs column with scVI/scANVI cell-type labels (must be in obs_cols).
+        obs column with cell-type labels (must be in obs_cols).
     output_h5ad : str
         Destination path.
     seed : int
@@ -264,11 +241,8 @@ def prepare_reference(
     promote : bool
         If False, dry-run only.
     filter_genes_mode : str
-        Gene set to write beyond the raw cross-source intersection:
-        "intersection" : no further filtering.
-        "cell2location_default" : apply cell2location.utils.filtering.filter_genes defaults
-         (cell_count_cutoff=5, cell_percentage_cutoff2=0.03, nonz_mean_cutoff=1.12).
-        "cell2location_u_da" : cell2location_default, unioned with Kamath's 17 DA marker genes.
+        Gene set to write beyond the raw cross-source intersection; see --filter-genes
+        argparse help for the "intersection" / "cell2location_default" / "cell2location_u_da" semantics.
 
     Returns
     -------
@@ -289,7 +263,6 @@ def prepare_reference(
     print(f"[INFO] Sampling {n_cells_label} cells per source from: {subset_sources}")
     source_barcodes = _sample_per_source(integrated, source_col, subset_sources, n_cells, seed)
 
-    # Collect per-source metadata (labels) from integrated obs
     source_obs = {}
     for src, barcodes in source_barcodes.items():
         source_obs[src] = integrated.obs.loc[barcodes, obs_cols].copy()
@@ -420,10 +393,6 @@ def prepare_reference(
     print(f"[DONE] {output_h5ad}")
 
 
-# ---------------------------------------------------------------------------
-# CLI
-# ---------------------------------------------------------------------------
-
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(
         description=__doc__,
@@ -534,7 +503,7 @@ if __name__ == "__main__":
     args.integrated_h5ad = os.path.abspath(args.integrated_h5ad)
     args.output_h5ad     = os.path.abspath(args.output_h5ad)
     args.output_dir      = os.path.dirname(args.output_h5ad)
-    log_run_command(Path(args.output_dir) / f"{Path(sys.argv[0]).stem}.log")
+    log_run_command(Path(args.output_dir) / f"{Path(args.output_h5ad).stem}.log")
 
     prepare_reference(
         integrated_h5ad=args.integrated_h5ad,

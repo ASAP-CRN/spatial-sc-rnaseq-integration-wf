@@ -1,8 +1,3 @@
-"""
-Utilities for selecting the best available PyTorch Lightning accelerator.
-"""
-
-
 def get_accelerator() -> str:
     """
     Return the best available PyTorch Lightning accelerator string.

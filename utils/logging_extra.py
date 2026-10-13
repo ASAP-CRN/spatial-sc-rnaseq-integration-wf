@@ -24,9 +24,7 @@ class _Tee:
 
 def log_run_command(log_file: Path) -> None:
     """
-    Write the calling script invocation with a timestamp to `log_file` and
-    redirect stdout and stderr through a tee so all subsequent output is
-    captured in the log as well as printed to the terminal.
+    tee calling script invocation with a timestamp to `log_file`.
 
     Parameters
     ----------

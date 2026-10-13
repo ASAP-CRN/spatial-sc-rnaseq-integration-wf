@@ -2,17 +2,9 @@ version 1.0
 
 import "../structs.wdl"
 
-# Spatial + scRNA-seq integration sub-workflow.
-#
-# Deconvolution method: Cell2location (Bayesian hierarchical model, GPU-accelerated).
-# RCTD (statistical mixture model, R) is planned for a future version.
-#
-# For each Visium sample the workflow runs Cell2location against the scRNA-seq cohort
-# reference. Samples from all projects are flattened upstream and scattered flat here.
-#
-# scRNA-seq inputs: sc-rnaseq-wf cohort_analysis (reference for all spatial samples)
-# Spatial inputs: per-sample post-QC adatas (raw UMI counts) from spatial-transcriptomics-wf
-# - Visium: spatial_visium preprocess.qc_adata_objects
+# Reference: downsampled H5AD from the sc-rnaseq-wf cohort_analysis (raw UMI counts).
+# Spatial input: spatial-transcriptomics-wf Visium per-sample post-QC H5ADs.
+# Deconvolution: Cell2location (GPU)
 
 workflow integration {
 	meta {
@@ -25,16 +17,12 @@ workflow integration {
 	}
 
 	input {
-		# scRNA-seq cohort reference (used for all spatial samples)
 		File sc_rnaseq_reference_adata
 
-		# Optional pre-computed Cell2location reference signatures (inf_aver.csv.gz).
-		# Required when run_stages excludes Stage 1 (e.g. "2,3"); ignored otherwise.
-		# TODO: add a dedicated build_reference_signatures task so Stage 1 runs once
-		# rather than being re-trained in each scatter when run_stages includes Stage 1.
+		# Required when run_stages excludes Stage 1; ignored otherwise.
 		File? sc_rnaseq_reference_cell2location_model
 
-		# Flat list of per-sample adatas (flattened across projects upstream in main.wdl)
+		# List of per-sample adatas
 		Array[SpatialVisiumSample] visium_samples
 
 		# Cell2location deconvolution parameters
@@ -45,12 +33,12 @@ workflow integration {
 		Int max_epochs_ref
 		Int max_epochs_spatial
 
-		# Downstream clustering parameters
+		# Clustering parameters
 		Int n_comps
 		Int n_neighbors
 		Array[Float] leiden_res
 
-		# Which stages to run, as a comma-separated subset of {1,2,3}; see cell2location_visium below
+		# Stages to run; see cell2location_visium
 		String run_stages
 		Int preemptible
 
@@ -129,18 +117,15 @@ task cell2location_visium {
 
 	input {
 		String sample_id
-		File? spatial_adata # per-sample Visium adata (.h5ad) — raw UMI counts, post-QC; required when run_stages includes Stage 2
+		File? spatial_adata # required when run_stages includes Stage 2
 
-		# Reference input: used only when run_stages includes Stage 1 or Stage 2 (see run_stages below).
-		# run_stages includes 1 → sc_rnaseq_reference_adata used; trains Stage 1, saves inf_aver.csv.gz
-		# run_stages includes 2 without 1 → sc_rnaseq_reference_cell2location_model used; loads pre-computed inf_aver.csv.gz
-		# sc_rnaseq_reference_cell2location_model takes precedence if both happen to be defined.
+		# sc_rnaseq_reference_adata trains Stage 1; sc_rnaseq_reference_cell2location_model loads
+		# pre-computed inf_aver.csv.gz signatures instead (takes precedence if both are defined).
 		File? sc_rnaseq_reference_adata
 		File? sc_rnaseq_reference_cell2location_model
 
-		# Pre-computed Stage 2 output (<sample_id>.deconvoluted.h5ad); required when run_stages
-		# includes Stage 3 without Stage 2. Only meaningful for isolated single-task testing —
-		# not threaded through the integration/main workflows (see run_stages help).
+		# Pre-computed Stage 2 <sample_id>.deconvoluted.h5ad; required when run_stages includes Stage 3 without Stage 2. 
+		# Clustering only — not threaded through integration/main workflows.
 		File? spatial_deconvolution_adata
 
 		String batch_key
@@ -153,12 +138,7 @@ task cell2location_visium {
 		Int n_neighbors
 		Array[Float] leiden_res
 
-		# Comma-separated subset of {1,2,3} — which stages to run: 1 = NB regression
-		# (reference signatures), 2 = Cell2location spatial mapping, 3 = downstream Leiden
-		# clustering. Default "1,2,3" (full pipeline, set in main.wdl); e.g. "1" builds the
-		# reference only (no spatial_adata needed), "2,3" loads a pre-computed reference and
-		# deconvolutes+clusters, "3" loads a pre-computed deconvolution and clusters only
-		# (no reference input needed).
+		# Comma-separated subset of {1,2,3}.  1 = NB regression (build reference signature), 2 = Cell2location spatial mapping of each sample, 3 = downstream Leiden clustering. run_stages parameter_meta for full semantics and examples.
 		String run_stages
 		Int preemptible
 
@@ -209,10 +189,7 @@ task cell2location_visium {
 	>>>
 
 	output {
-		# NOTE: these two are never written when run_stages excludes both Stage 2 and 3 (e.g.
-		# run_stages="1") — Cromwell will report this call as failed (output file not found)
-		# even though the script itself exits 0. When testing such a run_stages value, verify
-		# success via stdout/timing.tsv directly rather than this call's pass/fail status.
+		# NOTE: never written when run_stages is "1" only
 		File deconvoluted_adata_object = "~{corrected_sample_id}.deconvoluted.h5ad"
 		File deconvolution_metadata_csv = "~{corrected_sample_id}.deconvolution_metadata.csv.gz"
 		# Non-empty only when run_stages includes Stage 1; empty when a pre-computed model was used.

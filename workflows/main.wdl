@@ -4,12 +4,10 @@ version 1.0
 # Inputs are processed outputs from sc-rnaseq-wf and spatial-transcriptomics-wf;
 # this workflow does not handle raw FASTQ or SpaceRanger/CellRanger execution.
 #
-# The scRNA-seq cohort adata is used as a reference for all spatial samples.
-# Each spatial sample carries its own per-sample adata (raw UMI counts, post-QC);
-# samples from all projects are flattened and deconvoluted in parallel against the reference.
+# A downsampled version of the scRNA-seq cohort H5AD is used as a reference for all spatial samples.
+# Each spatial sample carries its own per-sample H5AD (raw UMI counts, post-QC).
 #
 # Deconvolution method: Cell2location (Bayesian hierarchical model, GPU-accelerated).
-# RCTD support is planned for a future version.
 
 import "structs.wdl"
 import "../wf-common/wdl/tasks/get_workflow_metadata.wdl" as GetWorkflowMetadata
@@ -27,14 +25,10 @@ workflow spatial_sc_rnaseq_integration {
 	}
 
 	input {
-		# Processed scRNA-seq cohort outputs (from sc-rnaseq-wf cohort_analysis).
-		# Typically one entry representing the cross-team cohort; used as the reference
-		# for all spatial samples.
+		# One entry representing the sc-rnaseq-wf cohort.
 		Array[ScRnaseqProject] sc_rnaseq_projects
 
-		# Processed spatial outputs (from spatial-transcriptomics-wf).
-		# Each project carries per-sample adatas (raw UMI counts, post-QC);
-		# samples are flattened across projects and deconvoluted independently.
+		# spatial-transcriptomics-wf post-QC spatial H5ADs.
 		Array[SpatialVisiumProject] spatial_visium_projects = []
 
 		# Optional pre-computed Cell2location reference signatures (inf_aver.csv.gz).
@@ -49,12 +43,12 @@ workflow spatial_sc_rnaseq_integration {
 		Int max_epochs_ref = 250
 		Int max_epochs_spatial = 30000
 
-		# Downstream clustering parameters
+		# Clustering parameters
 		Int n_comps = 30
 		Int n_neighbors = 15
 		Array[Float] leiden_res = [0.05, 0.1, 0.2, 0.4]
 
-		# Which stages to run, as a comma-separated subset of {1,2,3}; see Integration.integration
+		# Stages to run; see Integration.integration
 		String run_stages = "1,2,3"
 		Int preemptible = 3
 

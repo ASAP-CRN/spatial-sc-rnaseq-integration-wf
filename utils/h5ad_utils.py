@@ -1,7 +1,3 @@
-"""
-Generic h5ad / AnnData utilities shared across repo-root scripts.
-"""
-
 import numpy as np
 import pandas as pd
 from scipy.sparse import csr_matrix, issparse
@@ -90,8 +86,6 @@ def resolve_marker_ensembl_ids(
     list[str]
         Ensembl IDs found. Unmatched symbols are warned about, not raised on.
     """
-    # feature_name is categorical and can have duplicate symbol values
-    # (distinct Ensembl IDs sharing one symbol) -- both break .reindex().
     symbols_str = feature_name.astype(str)
     symbol_to_ensembl = pd.Series(symbols_str.index, index=symbols_str.values)
     symbol_to_ensembl = symbol_to_ensembl[~symbol_to_ensembl.index.duplicated(keep="first")]

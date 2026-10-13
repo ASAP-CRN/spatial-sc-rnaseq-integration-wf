@@ -7,7 +7,7 @@ struct ScRnaseqProject {
 	String asap_dataset_id
 	String asap_dataset_doi_url
 
-	File final_adata_object # cohort_analysis.final_adata_object (.h5ad) — Harmony-integrated, annotated
+	File final_adata_object
 
 	String raw_data_bucket
 }
@@ -16,7 +16,7 @@ struct ScRnaseqProject {
 # Source: spatial_visium preprocess.qc_adata_objects — one file per sample, post-QC.
 struct SpatialVisiumSample {
 	String sample_id
-	File qc_adata_object # spatial_visium preprocess.qc_adata_objects (.h5ad) — per-sample, post-QC, raw UMI counts
+	File qc_adata_object
 }
 
 # Processed outputs from spatial-transcriptomics-wf (Visium) used as inputs to this workflow.
