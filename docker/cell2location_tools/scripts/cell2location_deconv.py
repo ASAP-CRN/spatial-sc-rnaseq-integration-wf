@@ -27,7 +27,7 @@ stage1_ref_training_history.png / {sample_id}.stage2_spatial_training_history.pn
 {sample_id}.timing.tsv / {ref_stem}_ref_build.timing.tsv
     Per-step duration (seconds); skipped stages recorded as 0.0 under a "_skipped" name.
     {ref_stem} replaces {sample_id} in Stage-1-only mode.
-cell2location_deconvolute.log
+cell2location_deconv.log
     The exact invocation, for provenance.
 """
 

@@ -2,7 +2,7 @@
 """Load a saved Cell2location model checkpoint and run `export_posterior` with
 `accelerator="cpu"`, writing the resulting AnnData to disk.
 
-This is NOT a user-facing CLI -- it's invoked by `cell2location_deconvolute.py` as a
+This is NOT a user-facing CLI -- it's invoked by `cell2location_deconv.py` as a
 subprocess to avoid all-NaN posteriors caused by Pyro's parameter store retaining training
 state. Needed to avoid a leftover GPU "memory" and instead run a fresh subprocess."""
 
