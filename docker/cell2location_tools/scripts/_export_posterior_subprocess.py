@@ -54,7 +54,7 @@ def export_posterior(
             "accelerator": "cpu",
         },
     )
-    adata.write_h5ad(output_h5ad, compression="gzip")
+    adata.write_h5ad(output_h5ad, compression="lzf")
     print(f"[INFO] Wrote posterior-exported adata to {output_h5ad}")
 
 

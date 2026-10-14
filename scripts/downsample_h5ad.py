@@ -131,7 +131,7 @@ def downsample(infile, n_cells, seed, promote):
         return
 
     print("[write] writing (gzip)...")
-    adata[idx].write_h5ad(outfile, compression="gzip")
+    adata[idx].write_h5ad(outfile, compression="lzf")
     adata.file.close()
     print(f"[done] {outfile}")
 

@@ -686,7 +686,7 @@ def deconvolute_visium(
     # --- Write outputs ---
     t0 = time.time()
     print(f"[INFO] Writing {out_h5ad} ...")
-    adata_spatial.write_h5ad(out_h5ad, compression="gzip")
+    adata_spatial.write_h5ad(out_h5ad, compression="lzf")
     meta_cols = (
         [c for c in adata_spatial.obs.columns if c.startswith("frac_")]
         + [c for c in adata_spatial.obs.columns if c.startswith("leiden_")]

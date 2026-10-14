@@ -380,7 +380,7 @@ def prepare_reference(
 
     out = ad.AnnData(X=X_combined, obs=obs_combined, var=var_df)
     out.obs_names = all_barcodes
-    out.write_h5ad(output_h5ad, compression="gzip")
+    out.write_h5ad(output_h5ad, compression="lzf")
 
     print(f"[INFO] Combined obs dataframe:")
     print(obs_combined)
