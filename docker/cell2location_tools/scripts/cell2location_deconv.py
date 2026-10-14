@@ -857,8 +857,8 @@ def _parse_args() -> argparse.Namespace:
     stage3.add_argument("--n-neighbors",                  type=int, default=15,
         help="Neighbourhood size for downstream spot clustering. Default: 15")
     stage3.add_argument("--leiden-res",                   type=float, nargs="+",
-        default=[0.05, 0.1, 0.2, 0.4],
-        help="Leiden resolutions for downstream spot clustering. Default: 0.05 0.1 0.2 0.4")
+        default=[0.2, 0.5, 1.0],
+        help="Leiden resolutions for downstream spot clustering. Default: 0.2 0.5 1.0")
     stage3.add_argument("--spatial-deconvolution-adata",  default=None,
         help="Path to a pre-computed <sample_id>.deconvoluted.h5ad from a prior Stage 2 run.\n"
              "Required when Stage 3 is in --run-stages without Stage 2.")

@@ -15,7 +15,7 @@
   "spatial_sc_rnaseq_integration.max_epochs_spatial": "Int (optional, default = 30000) — Cell2location spatial mapping epochs.",
   "spatial_sc_rnaseq_integration.n_comps": "Int (optional, default = 30)",
   "spatial_sc_rnaseq_integration.n_neighbors": "Int (optional, default = 15)",
-  "spatial_sc_rnaseq_integration.leiden_res": "Array[Float] (optional, default = [0.05, 0.1, 0.2, 0.4])",
+  "spatial_sc_rnaseq_integration.leiden_res": "Array[Float] (optional, default = [0.2, 0.5, 1.0])",
 
   "spatial_sc_rnaseq_integration.cohort_raw_data_bucket_spatial_sc_rnaseq": "String",
   "spatial_sc_rnaseq_integration.container_registry": "String",

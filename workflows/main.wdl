@@ -46,7 +46,7 @@ workflow spatial_sc_rnaseq_integration {
 		# Clustering parameters
 		Int n_comps = 30
 		Int n_neighbors = 15
-		Array[Float] leiden_res = [0.05, 0.1, 0.2, 0.4]
+		Array[Float] leiden_res = [0.2, 0.5, 1.0]
 
 		# Stages to run; see Integration.integration
 		String run_stages = "1,2,3"
