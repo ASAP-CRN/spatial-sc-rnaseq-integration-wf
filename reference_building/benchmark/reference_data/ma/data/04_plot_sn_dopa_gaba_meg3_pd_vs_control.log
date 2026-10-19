@@ -1,0 +1,30 @@
+[2026-10-10 10:57:20] scripts/04_plot_sn_dopa_gaba_meg3_pd_vs_control.py
+
+Loaded 24 Substantia Nigra samples from reference_building/benchmark/reference_data/ma/data/original/41467_2025_62478_MOESM3_ESM.xlsx
+Condition
+Control    13
+PD         11
+
+Computed statistics:
+  n_control: 13
+  n_pd: 11
+  mean_da_pctneurons_control: 37.04026706334418
+  mean_da_pctneurons_pd: 33.628943185942916
+  p_mw_da_pctneurons: 0.9077531215721959
+  mean_da_raw_control: 6.589044120286454
+  mean_da_raw_pd: 12.89915726617113
+  p_mw_da_raw: 0.29701414425804706
+  fans_sorted_samples: ['T-0081', 'T-4938']
+  mean_da_excl_control: 6.589044120286454
+  mean_da_excl_pd: 6.4892060579348145
+  p_mw_da_excl: 0.7384623534985825
+  p_friedman_control: 0.0003622858839751428
+  p_wilcoxon_da_gaba: 0.001220703125
+  p_wilcoxon_gaba_meg3: 0.000244140625
+  p_wilcoxon_da_meg3: 0.146484375
+  meg3_range: 57–58%
+  da_range: 34–37%
+  gaba_range: 5–9%
+  top_da_samples: ['T-5547', 'T-5359', 'T-4839']
+
+Written reference_building/benchmark/reference_data/ma/data/analysis/da_sn_dopa_gaba_meg3_pd_vs_control.html

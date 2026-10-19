@@ -1,0 +1,23 @@
+[2026-10-10 12:18:04] reference_building/benchmark/reference_data/ma/scripts/05_format_visium_for_cell2location.py --promote
+
+Found 10 Visium sample zip(s) in reference_building/benchmark/reference_data/ma/data/original: ['T-0081', 'T-2465', 'T-2791', 'T-3799', 'T-3870', 'T-4424', 'T-4515', 'T-4839', 'T-5359', 'T-5498']
+  T-0081 (PD): 562 spots x 36,601 genes
+    Written reference_building/benchmark/reference_data/ma/data/reformatted/spatial_h5ad/T-0081.spatial.h5ad
+  T-2465 (Control): 958 spots x 36,601 genes
+    Written reference_building/benchmark/reference_data/ma/data/reformatted/spatial_h5ad/T-2465.spatial.h5ad
+  T-2791 (Control): 866 spots x 36,601 genes
+    Written reference_building/benchmark/reference_data/ma/data/reformatted/spatial_h5ad/T-2791.spatial.h5ad
+  T-3799 (Control): 1,037 spots x 36,601 genes
+    Written reference_building/benchmark/reference_data/ma/data/reformatted/spatial_h5ad/T-3799.spatial.h5ad
+  T-3870 (Control): 1,000 spots x 36,601 genes
+    Written reference_building/benchmark/reference_data/ma/data/reformatted/spatial_h5ad/T-3870.spatial.h5ad
+  T-4424 (PD): 1,624 spots x 36,601 genes
+    Written reference_building/benchmark/reference_data/ma/data/reformatted/spatial_h5ad/T-4424.spatial.h5ad
+  T-4515 (PD): 1,870 spots x 36,601 genes
+    Written reference_building/benchmark/reference_data/ma/data/reformatted/spatial_h5ad/T-4515.spatial.h5ad
+  T-4839 (PD): 799 spots x 36,601 genes
+    Written reference_building/benchmark/reference_data/ma/data/reformatted/spatial_h5ad/T-4839.spatial.h5ad
+  T-5359 (Control): 1,375 spots x 36,601 genes
+    Written reference_building/benchmark/reference_data/ma/data/reformatted/spatial_h5ad/T-5359.spatial.h5ad
+  T-5498 (PD): 1,768 spots x 36,601 genes
+    Written reference_building/benchmark/reference_data/ma/data/reformatted/spatial_h5ad/T-5498.spatial.h5ad

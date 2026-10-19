@@ -1,0 +1,45 @@
+[2026-10-16 12:11:37] reference_building/benchmark/reference_data/ma/scripts/07_compare_uber_kamath_pred_vs_ma_labels.py
+
+Loading cell2location outputs from reference_building/benchmark/reference_data/ma/data/processed/cell2location
+  T-0081: 562/562 spots joined
+  T-2465: 958/958 spots joined
+  T-2791: 866/866 spots joined
+  T-3799: 1037/1037 spots joined
+  T-3870: 1000/1000 spots joined
+  T-4424: 1624/1624 spots joined
+  T-4515: 1870/1870 spots joined
+  T-4839: 799/799 spots joined
+  T-5359: 1375/1375 spots joined
+  T-5498: 1768/1768 spots joined
+
+Pooled 11859 spots across 10 sample(s)
+
+Per-category agreement (continuous proportions, not argmax labels):
+                    pcc  rmse    js
+category                           
+DA neuron         0.665 0.231 0.292
+Oligodendrocyte   0.646 0.102 0.184
+Astrocyte         0.437 0.116 0.177
+Endothelial       0.395 0.117 0.169
+Microglia         0.316 0.153 0.281
+Oligod. Precursor 0.276 0.023 0.253
+BA macrophages    0.031 0.010 0.291
+Inhibitory neuron 0.017 0.026 0.410
+
+All-vs-all agreement (PCC, our pooled category x Ma pooled category):
+                   Astrocyte  BA macrophages  DA neuron  Endothelial  Inhibitory neuron  Interneuron  Microglia  Oligod. Precursor  Oligodendrocyte  Tcells  VascSmMs
+Astrocyte               0.44           -0.00      -0.21         0.21               0.04        -0.13      -0.18               0.06            -0.08   -0.13      0.01
+BA macrophages          0.01            0.03      -0.10        -0.02               0.02         0.00       0.11               0.15             0.00    0.20      0.10
+DA neuron              -0.44           -0.06       0.67        -0.39               0.20         0.51      -0.15              -0.21            -0.47   -0.14     -0.15
+Endothelial             0.07            0.20      -0.12         0.39               0.03        -0.14       0.16              -0.03            -0.09   -0.09      0.06
+Ependyma                0.43           -0.15      -0.32         0.17              -0.02        -0.10      -0.18               0.20             0.06    0.07      0.04
+Excitatory neuron      -0.40            0.04       0.57        -0.35               0.33         0.47      -0.07              -0.08            -0.45   -0.12     -0.12
+Inhibitory neuron      -0.29           -0.10       0.36        -0.37               0.02         0.23      -0.10              -0.09            -0.26    0.15      0.09
+Microglia               0.02            0.14      -0.17         0.01              -0.07        -0.15       0.32               0.09             0.07    0.23      0.12
+Oligod. Precursor       0.11           -0.08      -0.17        -0.05              -0.01        -0.04      -0.07               0.28             0.07    0.22      0.18
+Oligodendrocyte         0.09           -0.17      -0.38         0.04              -0.31        -0.30       0.01               0.05             0.65    0.11     -0.01
+
+Written reference_building/benchmark/reference_data/ma/data/processed/collapsed_agreement_per_spot.csv.gz
+Written reference_building/benchmark/reference_data/ma/data/processed/collapsed_agreement_metrics.csv
+Written reference_building/benchmark/reference_data/ma/data/processed/collapsed_agreement_all_vs_all.csv
+Written reference_building/benchmark/reference_data/ma/data/processed/collapsed_agreement_marginals.csv
