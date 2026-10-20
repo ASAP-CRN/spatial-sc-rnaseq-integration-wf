@@ -1,22 +1,22 @@
 #!/usr/bin/env python3
 """
-Kamath-free variant of integrate_kamath_menon_siletti_asap.py. Uses same logic to
+Kamath-free variant of 04_integrate_kamath_menon_siletti_asap.py. Uses same logic to
 integrate Menon + Siletti + ASAP only, via scVI + scANVI, but without Kamath data.
 
 Since Kamath is the dataset providing the ground truth labels for scANVI, in
-integrate_kamath_menon_siletti_asap.py, here instead we use the Allen cell type annotations 
+04_integrate_kamath_menon_siletti_asap.py, here instead we use the Allen cell type annotations 
 of Siletti's dataset (siletti_allen_cluster). This scripts derives those annotations
 from siletti_allen_subcluster via the Allen taxonomy's subcluster->cluster mapping.
 
 Notes:
 - Cluster Splat_395 is exactly and only the DA VGLUT2 population.
   All 805 DA VGLUT2 cells map to it.
-- _KAMATH_DA_MARKER_SYMBOLS still applies for the --gene-selection hvg_u_da_markers/list
+- KAMATH_DA_MARKER_SYMBOLS still applies for the --gene-selection hvg_u_da_markers/list
   parameter, to use the exact same list of HVGs + DA markers as in the Kamath-inclusive run.
 
 Outputs land in {output_dir}/{suffix}_no_kamath/.
 
-See reference_building/da_neurons_identification_analysis/README.md and integrate_kamath_menon_siletti_asap.py help for more details.
+See reference_building/da_neurons_identification_analysis/README.md and 04_integrate_kamath_menon_siletti_asap.py help for more details.
 
 """
 
@@ -37,7 +37,6 @@ from _reference_building_utils import (
     _SILETTI_SCALE_PRESETS,
     _SILETTI_DEFAULT_SCALE,
     _ASAP_H5AD_PATH,
-    _KAMATH_DA_MARKER_SYMBOLS,
     _DEFAULT_DOWNSAMPLE_MENON,
     _DEFAULT_DOWNSAMPLE_ASAP_COHORT,
     _qc_cache_paths,
@@ -52,10 +51,14 @@ from integrate_kamath_menon_siletti_asap import (
     save_elbo_plot,
     save_timing_file,
     compute_umap,
-    _resolve_marker_ensembl_ids,
     _validate_merged_obs,
     _require_cache,
 )
+
+_repo_root = next(p for p in Path(__file__).resolve().parents if (p / ".git").exists())
+sys.path.insert(0, str(_repo_root))
+from utils.h5ad_utils import resolve_marker_ensembl_ids
+from utils.genomics_constants import KAMATH_DA_MARKER_SYMBOLS
 
 # Allen taxonomy files.
 # See reference_building/da_neurons_identification_analysis/reference_data/allen-brain-cell-atlas/README.md for details
@@ -213,7 +216,7 @@ def main(args: argparse.Namespace) -> None:
     merged = preprocess_merged(merged, args.n_hvgs)
 
     # --- Gene selection: which genes scVI/scANVI actually train on (see
-    # integrate_kamath_menon_siletti_asap.py for the full rationale) ---
+    # 04_integrate_kamath_menon_siletti_asap.py for the full rationale) ---
     print(f"\n=== Gene selection: {args.gene_selection} ===")
     if args.gene_selection == "gene_intersection":
         print(f"  No restriction — training on all {merged.n_vars:,} shared (inner-join) genes")
@@ -228,13 +231,13 @@ def main(args: argparse.Namespace) -> None:
                     "var['feature_name'] column to resolve marker gene symbols "
                     "to Ensembl IDs, but it was not found on the loaded Menon cache."
                 )
-            marker_ensembl_ids = _resolve_marker_ensembl_ids(
-                menon_feature_name, _KAMATH_DA_MARKER_SYMBOLS, "Menon"
+            marker_ensembl_ids = resolve_marker_ensembl_ids(
+                menon_feature_name, KAMATH_DA_MARKER_SYMBOLS, "Menon"
             )
             in_markers = merged.var_names.isin(marker_ensembl_ids)
             train_mask = merged.var["highly_variable"].to_numpy() | in_markers
             n_markers_added = int((in_markers & ~merged.var["highly_variable"].to_numpy()).sum())
-            print(f"  {len(marker_ensembl_ids)}/{len(_KAMATH_DA_MARKER_SYMBOLS)} DA markers "
+            print(f"  {len(marker_ensembl_ids)}/{len(KAMATH_DA_MARKER_SYMBOLS)} DA markers "
                   f"resolved to Ensembl IDs in the merged panel; {n_markers_added} added beyond the HVG set")
         else:  # "list"
             with open(args.infile_gene_selection) as f:
@@ -256,8 +259,8 @@ def main(args: argparse.Namespace) -> None:
                 "to resolve the DA marker genes for the SAVED (HVG ∪ markers) "
                 "panel, even though training uses --infile-gene-selection instead."
             )
-        marker_ensembl_ids = _resolve_marker_ensembl_ids(
-            menon_feature_name, _KAMATH_DA_MARKER_SYMBOLS, "Menon"
+        marker_ensembl_ids = resolve_marker_ensembl_ids(
+            menon_feature_name, KAMATH_DA_MARKER_SYMBOLS, "Menon"
         )
         save_mask = merged.var["highly_variable"].to_numpy() | merged.var_names.isin(marker_ensembl_ids)
         n_before = merged.n_vars
@@ -374,7 +377,7 @@ if __name__ == "__main__":
         action=argparse.BooleanOptionalAction,
         default=True,
         help="Use the QC-filtered (postQC) cache for each of the three sources\n"
-             "(built by downsample_kamath_menon_siletti_asap.py). Pass\n"
+             "(built by 03_downsample_kamath_menon_siletti_asap.py). Pass\n"
              "--no-use-qc-filtered to use the preQC (downsampled but\n"
              "unfiltered) cache instead.\n"
              "[Default: True]",
@@ -396,7 +399,7 @@ if __name__ == "__main__":
         "--downsample-menon",
         type=int,
         default=_DEFAULT_DOWNSAMPLE_MENON,
-        help="Must match the value passed to downsample_kamath_menon_siletti_asap.py\n"
+        help="Must match the value passed to 03_downsample_kamath_menon_siletti_asap.py\n"
              "-- used only to reconstruct the matching Menon cache filename,\n"
              "not to re-downsample.\n"
              f"[Default: {_DEFAULT_DOWNSAMPLE_MENON}]",
@@ -406,7 +409,7 @@ if __name__ == "__main__":
         type=int,
         choices=sorted(_SILETTI_SCALE_PRESETS),
         default=_SILETTI_DEFAULT_SCALE,
-        help="Must match the value passed to downsample_kamath_menon_siletti_asap.py\n"
+        help="Must match the value passed to 03_downsample_kamath_menon_siletti_asap.py\n"
              "-- used only to reconstruct the matching Siletti cache filename,\n"
              "not to re-downsample.\n"
              f"[Default: {_SILETTI_DEFAULT_SCALE}]",
@@ -415,7 +418,7 @@ if __name__ == "__main__":
         "--downsample-asap-cohort",
         type=int,
         default=_DEFAULT_DOWNSAMPLE_ASAP_COHORT,
-        help="Must match the value passed to downsample_kamath_menon_siletti_asap.py\n"
+        help="Must match the value passed to 03_downsample_kamath_menon_siletti_asap.py\n"
              "-- used only to reconstruct the matching ASAP cache filename,\n"
              "not to re-downsample.\n"
              f"[Default: {_DEFAULT_DOWNSAMPLE_ASAP_COHORT}]",
@@ -432,7 +435,7 @@ if __name__ == "__main__":
         choices=["gene_intersection", "hvg_only", "hvg_u_da_markers", "list"],
         default="gene_intersection",
         help="Which genes scVI/scANVI actually train on -- same semantics as\n"
-             "integrate_kamath_menon_siletti_asap.py's --gene-selection.\n"
+             "04_integrate_kamath_menon_siletti_asap.py's --gene-selection.\n"
              "[Default: gene_intersection]",
     )
     parser.add_argument(

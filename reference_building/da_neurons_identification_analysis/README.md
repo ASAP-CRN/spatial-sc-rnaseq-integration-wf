@@ -25,29 +25,33 @@ This is a one-time analysis, not part of the spatial deconvolution WDL pipeline.
 
 | Path | What | Inputs | Key outputs |
 |---|---|---|---|
-| `scripts/download_kamath_menon_siletti.py` | Step 1. Download H5ADs from CELLxGENE | CELLxGENE API (network) — Kamath/Menon/Siletti collections | `reference_data/{source}/*.h5ad` |
-| `scripts/downsample_kamath_menon_siletti_asap.py` | Step 2. Downsample and QC datasets | `reference_data/{source}/*.h5ad` (step 1); ASAP H5ADs `merged_cleaned_unfiltered.h5ad` & `final.h5ad`, and `SAMPLE.csv` (hardcoded paths — must be provided by user, not downloaded by any script); Allen Brain Cell Atlas metadata (manually downloaded) | `reference_data/*/intermediate/*_{preQC,postQC}.h5ad`|
-| `scripts/integrate_kamath_menon_siletti_asap.py` | Step 3a. -- All four sources included. Uses Kamath cell type labels as ground-truth | All 4 sources' either preQC or postQC H5AD caches (step 2) | Final `output/{suffix}/integrated_{suffix}.h5ad`. See [Integration outputs](#integration-outputs) for details.|
-| `scripts/integrate_menon_siletti_asap.py` | Step 3b. -- Three sources included (Kamath excluded). Same logic as above but using Siletti (Allen) labels as ground-truth. | Menon/Siletti/ASAP preQC or postQC H5AD caches (step 2) | Same as above but with `{suffix}_no_kamath`. |
-| `explore_integration.ipynb` | Step 4 — interactive plotly/ipywidgets notebook (UMAP explorer, label agreement, read-depth QC). | `output/{suffix}/integrated_{suffix}.h5ad`; source intermediate caches; Siletti's Allen membership tables | None persisted — interactive display only |
-| `scripts/kamath_overlap.py` | One-time pre-downsample of Kamath H5ADs to identify files relevant for integration. | `reference_data/kamath/*.h5ad` (9 raw files) | None — prints results to console only |
+| `scripts/01_download_kamath_menon_siletti.py` | Download H5ADs from CELLxGENE | CELLxGENE API (network) — Kamath/Menon/Siletti collections | `reference_data/{source}/*.h5ad` |
+| `scripts/02_kamath_overlap.py` | One-time pre-downsample of Kamath H5ADs to identify files relevant for integration. | `reference_data/kamath/*.h5ad` (9 raw files) | None — prints results to console only |
+| `scripts/03_downsample_kamath_menon_siletti_asap.py` | Downsample and QC datasets | `reference_data/{source}/*.h5ad` (step 1); ASAP H5ADs `merged_cleaned_unfiltered.h5ad` & `final.h5ad`, and `SAMPLE.csv` (hardcoded paths — must be provided by user, not downloaded by any script); Allen Brain Cell Atlas metadata (manually downloaded) | `reference_data/*/intermediate/*_{preQC,postQC}.h5ad`|
+| `scripts/04_integrate_kamath_menon_siletti_asap.py` | All four sources included. Uses Kamath cell type labels as ground-truth | All 4 sources' either preQC or postQC H5AD caches (step 2) | Final `output/{suffix}/integrated_{suffix}.h5ad`. See [Integration outputs](#integration-outputs) for details.|
+| `scripts/05_integrate_menon_siletti_asap.py` | Three sources included (Kamath excluded). Same logic as above but using Siletti (Allen) labels as ground-truth. | Menon/Siletti/ASAP preQC or postQC H5AD caches (step 2) | Same as above but with `{suffix}_no_kamath`. |
 | `utils/_reference_building_utils.py` | Shared functions and constants used by scripts above. | — | — |
+| `<repo_root>/notebooks/explore_integration.*.ipynb` | Interactive Jupyter notebooks to explore scRNA-seq integration outputs | Outputs from integration steps 04 and 05 | UMAP explorer, label agreement, read-depth QC |
+| `<repo-root>/scripts/build_deconv_reference_h5ad.py` | Build a scRNA-seq reference for the decovolution. | ASAP, Siletti and Kamath integrated and pre-QC H5ADs | Final reference H5AD |
 | `reference_data/allen-brain-cell-atlas/` | Manually-downloaded Allen Brain Cell Atlas reference files (see its own `README.md`). | — | — |
 | `output/` | See [Integration outputs](#integration-outputs) for details. | — | — |
 | `docs/` | Workflow diagram and other supporting documentation assets. | — | — |
 
+
+scripts/build_deconv_reference_h5ad.py
+
 ## How to submit
 
-- For each source, `downsample_kamath_menon_siletti_asap.py` makes preQC and postQC files addressing dataset-specific downsampling and QC strategies. See `sources.pdf`.
+- For each source, `03_downsample_kamath_menon_siletti_asap.py` makes preQC and postQC files addressing dataset-specific downsampling and QC strategies. See `sources.pdf`.
 - Steps 1 & 2 are CPU-only and run once per set of downsampling targets. Step 3 is GPU-bound and re-loads whatever step 2 cached (it never re-derives QC or downsampling).
 - Typically, steps 2 and 3 share the same `{downsampling-parameters}` to identify cached files, like:     
 `--kamath-non-da-per-type 13000 --downsample-menon 100000 --siletti-scale 100000 --downsample-asap-cohort 100000`
 
 ### Submission examples:
 ```
-python3 /path/to/download_kamath_menon_siletti.py
-python3 /path/to/downsample_kamath_menon_siletti_asap.py {downsampling-parameters}
-python3 /path/to/integrate_kamath_menon_siletti_asap.py  {downsampling-parameters} --gene-selection hvg_u_da_markers --output-dir /path/to/outdir
+python3 /path/to/01_download_kamath_menon_siletti.py
+python3 /path/to/03_downsample_kamath_menon_siletti_asap.py {downsampling-parameters}
+python3 /path/to/04_integrate_kamath_menon_siletti_asap.py  {downsampling-parameters} --gene-selection hvg_u_da_markers --output-dir /path/to/outdir
 ```
 
 ## Step 3 notes
@@ -74,7 +78,7 @@ so they stay plottable even in the two "markers: no" runs.
 ```
 Kamath data?
 │
-├── YES  (integrate_kamath_menon_siletti_asap.py)
+├── YES  (04_integrate_kamath_menon_siletti_asap.py)
 │   │
 │   ├── Kamath markers: YES  --gene-selection hvg_u_da_markers
 │   │   └── output/asap96k_kamath97k_menon99k_siletti100k_hvg_u_da_markers/
@@ -83,7 +87,7 @@ Kamath data?
 │       │                    --infile-gene-selection reference_data/gene_lists/asap96k_kamath97k_menon99k_siletti100k_hvg_minus_da_markers_gene_list.txt
 │       └── output/asap96k_kamath97k_menon99k_siletti100k_list_asap96k_kamath97k_menon99k_siletti100k_hvg_minus_da_markers_gene_list/
 │
-└── NO   (integrate_menon_siletti_asap.py -- Kamath never loaded)
+└── NO   (05_integrate_menon_siletti_asap.py -- Kamath never loaded)
     │
     ├── Kamath markers: YES  --gene-selection hvg_u_da_markers
     │   └── output/asap96k_menon99k_siletti100k_hvg_u_da_markers_no_kamath/

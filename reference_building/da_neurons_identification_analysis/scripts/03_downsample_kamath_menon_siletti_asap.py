@@ -8,10 +8,10 @@ of the following sources:
 - ASAP v3.1.0/2025-12-01T22-36-30Z
 
 Phase 1 of a two-script pipeline (CPU-only: scrublet, filtering,
-downsampling). Run this script first, then integrate_kamath_menon_siletti_asap.py
+downsampling). Run this script first, then 04_integrate_kamath_menon_siletti_asap.py
 (GPU-bound scVI, scANVI) with the SAME --kamath-non-da-per-type /
---kamath-all-random / --downsample-kamath / --downsample-menon / --siletti-scale /
---downsample-asap-cohort values, so it locates the caches this script wrote.
+--kamath-all-random / --kamath-cell-type-min / --downsample-kamath / --downsample-menon /
+--siletti-scale / --downsample-asap-cohort values, so it locates the caches this script wrote.
 
 - Kamath et al. (Nat Neurosci 2022): 22,048 DA neurons (10 subtypes) + non-DA
   cell types from SNpc.
@@ -35,7 +35,7 @@ defaults unless otherwise specified.
 Inputs
 ------
 1) H5AD's for each source.
-   Get Kamath, Menon, Siletti H5AD files by running download_kamath_menon_siletti.py.
+   Get Kamath, Menon, Siletti H5AD files by running 01_download_kamath_menon_siletti.py.
    ASAP H5AD files need to be manually downloaded.
 2) Requires Siletti re-annotation manually-downloaded Allen Brain Cell Atlas files at
    reference_building/da_neurons_identification_analysis/reference_data/allen-brain-cell-atlas/metadata/ (see that directory's README).
@@ -82,9 +82,12 @@ from _reference_building_utils import (
     _qc_summary_path,
     _sn_cache_path,
     _find_menon_h5ad,
-    extract_raw_counts,
     log_run_command,
 )
+
+_repo_root = next(p for p in Path(__file__).resolve().parents if (p / ".git").exists())
+sys.path.insert(0, str(_repo_root))
+from utils.h5ad_utils import extract_raw_counts
 
 warnings.filterwarnings("ignore", category=FutureWarning)
 warnings.filterwarnings("ignore", message=".*copying X to .raw.*")
@@ -467,6 +470,7 @@ def load_kamath(
     da_subtype_column: str,
     n_non_da_per_type: int = 0,
     all_random: bool = False,
+    cell_type_min: int = 0,
     n_total: int = 0,
     qc_pct_counts_mt_max: float = _QC_PCT_COUNTS_MT_MAX,
     qc_doublet_score_max: float = _QC_DOUBLET_SCORE_MAX,
@@ -485,7 +489,7 @@ def load_kamath(
 
     Both Nurr1-sorted files must be in `exclude_files` — barcode overlap
     confirmed their cells already appear in the 7 cell-type files (see
-    kamath_overlap.py); including them would duplicate ~184k cells.
+    02_kamath_overlap.py); including them would duplicate ~184k cells.
 
     Parameters
     ----------
@@ -497,12 +501,18 @@ def load_kamath(
         obs column with fine-grained DA subtype labels.
     n_non_da_per_type : int
         Max cells per non-DA file (0 = no subsampling). DA neurons file
-        always kept in full. Ignored when `all_random=True`.
+        always kept in full. Ignored when `all_random=True` or `cell_type_min > 0`.
     all_random : bool
         If True, pool all non-excluded files and draw `n_total` cells at random
         (no per-file cap, no DA-first priority). `n_total` must be > 0.
+        Mutually exclusive with `cell_type_min > 0`.
+    cell_type_min : int
+        If > 0, guarantee at least this many cells per `da_subtype_column` label
+        (or all available if fewer exist), then top up randomly to `n_total`.
+        `n_total` must be > 0. Mutually exclusive with `all_random`.
     n_total : int
-        Total cells to draw when `all_random=True`. Must be > 0 in that mode.
+        Total cells to draw when `all_random=True` or `cell_type_min > 0`.
+        Must be > 0 in those modes.
 
     Returns
     -------
@@ -513,7 +523,7 @@ def load_kamath(
     if not paths:
         raise FileNotFoundError(
             f"No H5AD files found in {kamath_h5ad_dir}. "
-            "Run download_kamath_menon_siletti.py first."
+            "Run 01_download_kamath_menon_siletti.py first."
         )
 
     exclude_basenames = {os.path.basename(f) for f in exclude_files}
@@ -580,6 +590,94 @@ def load_kamath(
         _log_qc_pair("Kamath", kamath_preqc, kamath_postqc)
         tag = str(n_total)
 
+    elif cell_type_min > 0:
+        # Strategy 3: guarantee a floor of `cell_type_min` cells per author_cell_type
+        # across all files, then top up randomly to `n_total`.
+
+        # ── Step 1: backed obs scan — collect per-type row positions ────────────
+        type_to_rows: dict[str, list[tuple[str, int]]] = {}
+        for path, basename in _valid_paths():
+            backed = sc.read_h5ad(path, backed="r")
+            if da_subtype_column in backed.obs.columns:
+                ct_vals = backed.obs[da_subtype_column].astype(str).values
+            else:
+                ct_vals = backed.obs["cell_type"].astype(str).values
+            n = len(ct_vals)
+            backed.file.close()
+            for i, ct in enumerate(ct_vals):
+                type_to_rows.setdefault(ct, []).append((path, i))
+            print(f"  Backed scan: {basename} ({n:,} cells)")
+
+        if not type_to_rows:
+            raise RuntimeError("No Kamath files found after exclusions.")
+
+        # ── Step 2: floor — take up to cell_type_min per type ───────────────────
+        rng = np.random.default_rng(0)
+        floor_by_file: dict[str, list[int]] = {}
+        surplus_rows: list[tuple[str, int]] = []
+
+        for ct, rows in sorted(type_to_rows.items()):
+            n_floor = min(cell_type_min, len(rows))
+            perm = rng.permutation(len(rows))
+            for i in perm[:n_floor]:
+                path, row_idx = rows[i]
+                floor_by_file.setdefault(path, []).append(row_idx)
+            for i in perm[n_floor:]:
+                surplus_rows.append(rows[i])
+
+        n_floor_total = sum(len(v) for v in floor_by_file.values())
+        print(
+            f"  Floor guarantee: {n_floor_total:,} cells across {len(type_to_rows)} types "
+            f"(min {cell_type_min} per type; {len(surplus_rows):,} cells in top-up pool)"
+        )
+
+        # ── Step 3: top-up from surplus pool ────────────────────────────────────
+        topup_by_file: dict[str, list[int]] = {}
+        n_topup = max(0, n_total - n_floor_total)
+        if n_topup > 0 and surplus_rows:
+            n_topup_actual = min(n_topup, len(surplus_rows))
+            topup_idx = rng.choice(len(surplus_rows), size=n_topup_actual, replace=False)
+            for i in topup_idx:
+                path, row_idx = surplus_rows[i]
+                topup_by_file.setdefault(path, []).append(row_idx)
+            print(f"  Top-up: {n_topup_actual:,} cells drawn from surplus pool")
+        elif n_topup > 0:
+            print(f"  Top-up: surplus pool empty; floor ({n_floor_total:,}) is the full draw")
+
+        # ── Step 4: merge floor + top-up per file, load into memory ─────────────
+        all_by_file: dict[str, list[int]] = {}
+        for path, idxs in floor_by_file.items():
+            all_by_file.setdefault(path, []).extend(idxs)
+        for path, idxs in topup_by_file.items():
+            all_by_file.setdefault(path, []).extend(idxs)
+
+        subsets = []
+        for path in sorted(all_by_file.keys()):
+            basename = os.path.basename(path)
+            file_idx = np.sort(all_by_file[path])
+            print(f"  Loading {len(file_idx):,} selected cells from: {basename}")
+            backed = sc.read_h5ad(path, backed="r")
+            chunk = backed[file_idx].to_memory()
+            backed.file.close()
+            _annotate_kamath_obs(chunk, basename, da_subtype_column)
+            print(f"    cell types: {sorted(chunk.obs['cell_type_scanvi'].unique())}")
+            subsets.append(chunk)
+            del chunk
+
+        # ── Step 5: concat the subsets, then QC once ────────────────────────────
+        kamath_preqc = ad.concat(subsets, join="inner")
+        del subsets
+        kamath_preqc.obs["original_barcode"] = kamath_preqc.obs_names.astype(str)
+        kamath_preqc.obs_names = "kamath_" + kamath_preqc.obs_names.astype(str)
+        kamath_postqc = _apply_qc_filters(
+            kamath_preqc, "Kamath cell-type-min",
+            pct_counts_mt_max=qc_pct_counts_mt_max, doublet_score_max=qc_doublet_score_max,
+            total_counts_limits=qc_total_counts_limits, n_genes_limits=qc_n_genes_limits,
+            doublet_batch_key="donor_id",
+        )
+        _log_qc_pair("Kamath", kamath_preqc, kamath_postqc)
+        tag = str(n_total)
+
     else:
         # ── Default mode: per-file subsample + QC, temp files keep peak RAM low ─
         # "da_neurons" is a substring of "non_da_neurons" — match exact filename.
@@ -635,7 +733,12 @@ def load_kamath(
         os.rmdir(tmp_dir)
         tag = str(n_non_da_per_type)
 
-    anchor_name = "kamath_merged_all_rand" if all_random else "kamath_merged_da_all_non_da"
+    if all_random:
+        anchor_name = "kamath_merged_all_rand"
+    elif cell_type_min > 0:
+        anchor_name = f"kamath_merged_cell_type_min{cell_type_min}"
+    else:
+        anchor_name = "kamath_merged_da_all_non_da"
     kamath_anchor = os.path.join(kamath_h5ad_dir, "intermediate", anchor_name)
     _write_qc_summary(_qc_summary_path(kamath_anchor, tag))
 
@@ -831,7 +934,7 @@ def _load_all_neuron_barcodes(siletti_dir: str) -> set:
     """Barcodes present in Siletti's whole-atlas 'all neurons' file."""
     path = os.path.join(siletti_dir, f"{_SILETTI_ALL_NEURONS_FILE}.h5ad")
     if not os.path.exists(path):
-        raise FileNotFoundError(f"{path} not found. Run download_kamath_menon_siletti.py first.")
+        raise FileNotFoundError(f"{path} not found. Run 01_download_kamath_menon_siletti.py first.")
     a = sc.read_h5ad(path, backed="r")
     return set(a.obs_names)
 
@@ -884,7 +987,7 @@ def load_siletti(
     for region_label, file_stem in _SILETTI_MIDBRAIN_REGIONS.items():
         h5ad_path = os.path.join(siletti_dir, f"{file_stem}.h5ad")
         if not os.path.exists(h5ad_path):
-            raise FileNotFoundError(f"{h5ad_path} not found. Run download_kamath_menon_siletti.py first.")
+            raise FileNotFoundError(f"{h5ad_path} not found. Run 01_download_kamath_menon_siletti.py first.")
 
         backed = sc.read_h5ad(h5ad_path, backed="r")
         obs_names = set(backed.obs_names)
@@ -1340,14 +1443,25 @@ def main(args: argparse.Namespace) -> None:
     exclude = [f.strip() for f in args.exclude_kamath_files.split(",") if f.strip()]
 
     print("\n=== Loading Kamath datasets ===")
+    if args.kamath_all_random and args.kamath_cell_type_min > 0:
+        parser.error("--kamath-all-random and --kamath-cell-type-min are mutually exclusive.")
     if args.kamath_all_random and args.downsample_kamath is None:
         parser.error("--downsample-kamath is required when --kamath-all-random is set.")
-    if not args.kamath_all_random and args.downsample_kamath is not None:
-        parser.error("--downsample-kamath is only valid when --kamath-all-random is set.")
+    if args.kamath_cell_type_min > 0 and args.downsample_kamath is None:
+        parser.error("--downsample-kamath is required when --kamath-cell-type-min is set.")
+    if args.downsample_kamath is not None and not args.kamath_all_random and args.kamath_cell_type_min == 0:
+        parser.error("--downsample-kamath requires --kamath-all-random or --kamath-cell-type-min.")
 
-    kamath_anchor_name = "kamath_merged_all_rand" if args.kamath_all_random else "kamath_merged_da_all_non_da"
+    if args.kamath_all_random:
+        kamath_anchor_name = "kamath_merged_all_rand"
+        kamath_tag = str(args.downsample_kamath)
+    elif args.kamath_cell_type_min > 0:
+        kamath_anchor_name = f"kamath_merged_cell_type_min{args.kamath_cell_type_min}"
+        kamath_tag = str(args.downsample_kamath)
+    else:
+        kamath_anchor_name = "kamath_merged_da_all_non_da"
+        kamath_tag = str(args.kamath_non_da_per_type)
     kamath_anchor = os.path.join(kamath_dir, "intermediate", kamath_anchor_name)
-    kamath_tag = str(args.downsample_kamath) if args.kamath_all_random else str(args.kamath_non_da_per_type)
     kamath_preqc_cache, kamath_postqc_cache = _qc_cache_paths(kamath_anchor, kamath_tag)
     if args.use_cached_intermediate_h5ad and os.path.exists(kamath_preqc_cache) and os.path.exists(kamath_postqc_cache):
         _kp = sc.read_h5ad(kamath_preqc_cache, backed="r")
@@ -1359,6 +1473,7 @@ def main(args: argparse.Namespace) -> None:
             kamath_dir, exclude, args.da_subtype_column,
             n_non_da_per_type=args.kamath_non_da_per_type,
             all_random=args.kamath_all_random,
+            cell_type_min=args.kamath_cell_type_min,
             n_total=args.downsample_kamath or 0,
             qc_pct_counts_mt_max=args.qc_pct_counts_mt_max,
             qc_doublet_score_max=args.qc_doublet_score_max,
@@ -1425,9 +1540,10 @@ def main(args: argparse.Namespace) -> None:
         "\nDone. Intermediate preQC/postQC caches (and each dataset's own "
         "qc_summary.tsv, next to its caches) are ready under each source's "
         "intermediate/ directory. Run "
-        "integrate_kamath_menon_siletti_asap.py next, with the SAME "
-        "--kamath-non-da-per-type / --kamath-all-random / --downsample-menon / "
-        "--siletti-scale / --downsample-asap-cohort values, to locate them and "
+        "04_integrate_kamath_menon_siletti_asap.py next, with the SAME "
+        "--kamath-non-da-per-type / --kamath-all-random / --kamath-cell-type-min / "
+        "--downsample-kamath / --downsample-menon / --siletti-scale / "
+        "--downsample-asap-cohort values, to locate them and "
         "train the scVI/scANVI reference."
     )
 
@@ -1459,7 +1575,7 @@ if __name__ == "__main__":
             "human_nurr_negative_nuclei_10x_scrna_seq.h5ad"
         ),
         help="Comma-separated Kamath H5AD filenames to skip. Both Nurr files\n"
-             "excluded by default (see kamath_overlap.py).\n"
+             "excluded by default (see 02_kamath_overlap.py).\n"
              "[Default: human_nurr_positive_nuclei_10x_scrna_seq.h5ad,\n"
              "          human_nurr_negative_nuclei_10x_scrna_seq.h5ad]",
     )
@@ -1478,16 +1594,27 @@ if __name__ == "__main__":
         default=False,
         help="Pool all non-excluded Kamath files and draw --downsample-kamath\n"
              "cells at random (no per-file cap, no DA-first priority).\n"
-             "Requires --downsample-kamath. Incompatible without it.\n"
+             "Requires --downsample-kamath. Mutually exclusive with\n"
+             "--kamath-cell-type-min.\n"
              "[Default: False]",
+    )
+    parser.add_argument(
+        "--kamath-cell-type-min",
+        type=int,
+        default=0,
+        help="Minimum cells to guarantee per author_cell_type label across all\n"
+             "Kamath files (or all available if fewer exist), then top up randomly\n"
+             "to --downsample-kamath. 0 = disabled. Requires --downsample-kamath.\n"
+             "Mutually exclusive with --kamath-all-random.\n"
+             "[Default: 0]",
     )
     parser.add_argument(
         "--downsample-kamath",
         type=int,
         default=None,
-        help="Total cells to draw when --kamath-all-random is True. The global\n"
-             "random draw happens BEFORE QC. Required when --kamath-all-random\n"
-             "is set; incompatible when it is not.\n"
+        help="Total cells to draw when --kamath-all-random or --kamath-cell-type-min\n"
+             "is set. The draw happens BEFORE QC. Required when either flag is set;\n"
+             "incompatible when neither is set.\n"
              "[Default: None]",
     )
     parser.add_argument(

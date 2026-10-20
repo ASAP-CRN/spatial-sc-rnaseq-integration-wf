@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 Download and cache the raw Kamath 2022, Menon 2026, and Siletti 2023 H5ADs
-from CELLxGENE, for later use by integrate_kamath_menon_siletti_asap.py.
+from CELLxGENE, for later use by 04_integrate_kamath_menon_siletti_asap.py.
 
 Stores files under reference_building/da_neurons_identification_analysis/reference_data/ -- no filtering,
 subsampling, or merging. ASAP PMDBS cohort is not downloaded here; the user
@@ -16,7 +16,7 @@ https://cellxgene.cziscience.com/collections/16876983-d454-43db-a8ec-77fafca9bf3
 Siletti: only the 4 files actually used downstream, from
 https://cellxgene.cziscience.com/collections/283d65eb-dd53-496d-adb7-7570c7caa443
 - 3 "Dissection: <region>" files covering the midbrain (SN-RN, SN, RN) --
-  see _SILETTI_NEEDED_FILE_STEMS here and downsample_kamath_menon_siletti_asap.py's
+  see _SILETTI_NEEDED_FILE_STEMS here and 03_downsample_kamath_menon_siletti_asap.py's
   _SILETTI_MIDBRAIN_REGIONS (keep both in sync if the region selection ever changes).
 - "All neurons", the whole-atlas file used only to test barcode membership
   (neuron vs non-neuron) in load_siletti() -- never pooled into the modeled
@@ -49,7 +49,7 @@ _MENON_COLLECTION_ID   = "16876983-d454-43db-a8ec-77fafca9bf38"
 _SILETTI_COLLECTION_ID = "283d65eb-dd53-496d-adb7-7570c7caa443"
 
 # Exactly the Siletti files load_siletti()/_load_all_neuron_barcodes() in
-# downsample_kamath_menon_siletti_asap.py actually read -- see module
+# 03_downsample_kamath_menon_siletti_asap.py actually read -- see module
 # docstring for why only these. Normalized-title stems (via _normalize_label).
 _SILETTI_NEEDED_FILE_STEMS = {
     "dissection_midbrain_m_substantia_nigra_red_nucleus_and_nearby_nuclei_sn_rn",
@@ -301,7 +301,7 @@ def main(args: argparse.Namespace) -> None:
     print(f"  → {siletti_dir}")
 
     print(
-        "\nDone. Run integrate_kamath_menon_siletti_asap.py next to build "
+        "\nDone. Run 04_integrate_kamath_menon_siletti_asap.py next to build "
         "intermediate/derived files and run the integration."
     )
 

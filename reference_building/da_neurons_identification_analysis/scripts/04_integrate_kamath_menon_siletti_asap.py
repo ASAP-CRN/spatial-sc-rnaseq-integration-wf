@@ -9,15 +9,16 @@ See reference_building/da_neurons_identification_analysis/README.md for more det
 This is a one-time analysis, not part of the spatial deconvolution WDL pipeline.
 
 Relationship to other scripts:
-- Run integrate_kamath_menon_siletti_asap.py after downsample_kamath_menon_siletti_asap.py
+- Run 04_integrate_kamath_menon_siletti_asap.py after 03_downsample_kamath_menon_siletti_asap.py
   with the same values for the following parameters:
-  --kamath-non-da-per-type (or --kamath-all-random --downsample-kamath), --downsample-menon,
-  --siletti-scale and --downsample-asap-cohort so integrate_kamath_menon_siletti_asap.py
+  --kamath-non-da-per-type (or --kamath-all-random / --kamath-cell-type-min, both paired with
+  --downsample-kamath), --downsample-menon,
+  --siletti-scale and --downsample-asap-cohort so 04_integrate_kamath_menon_siletti_asap.py
   finds the right cached files.
   These downsample_* and integrate_* scripts were split to:
   a) control the type of machine needed CPU (cheaper) vs. GPU (expensive)
   b) cache intermediate files to restart the run if needed
-- Run integrate_menon_siletti_asap.py instead of integrate_kamath_menon_siletti_asap.py
+- Run 05_integrate_menon_siletti_asap.py instead of 04_integrate_kamath_menon_siletti_asap.py
   for a run without Kamath's data and using Siletti (Allen) labels as ground truth.
 
 Integration strategy
@@ -33,11 +34,11 @@ Integration strategy
 
 Usage example
 -------------
-A typical integrate_kamath_menon_siletti_asap.py run, with ~100k cells per dataset (total ~400k cells) could
+A typical 04_integrate_kamath_menon_siletti_asap.py run, with ~100k cells per dataset (total ~400k cells) could
 run in a MacBook Pro with 36GB RAM and an Apple M3 Pro chip in 7-9 hours.
 
 ```
-python3 integrate_kamath_menon_siletti_asap.py \
+python3 04_integrate_kamath_menon_siletti_asap.py \
     --output-dir /path/to/reference_building/da_neurons_identification_analysis/output/ \
     --kamath-non-da-per-type 13000 \
     --downsample-menon 100000 \
@@ -77,7 +78,6 @@ from _reference_building_utils import (
     _SILETTI_SCALE_PRESETS,
     _SILETTI_DEFAULT_SCALE,
     _ASAP_H5AD_PATH,
-    _KAMATH_DA_MARKER_SYMBOLS,
     _DEFAULT_KAMATH_NON_DA_PER_TYPE,
     _DEFAULT_DOWNSAMPLE_MENON,
     _DEFAULT_DOWNSAMPLE_ASAP_COHORT,
@@ -87,48 +87,13 @@ from _reference_building_utils import (
     log_run_command,
 )
 
+_repo_root = next(p for p in Path(__file__).resolve().parents if (p / ".git").exists())
+sys.path.insert(0, str(_repo_root))
+from utils.h5ad_utils import resolve_marker_ensembl_ids
+from utils.genomics_constants import KAMATH_DA_MARKER_SYMBOLS
+
 warnings.filterwarnings("ignore", category=FutureWarning)
 warnings.filterwarnings("ignore", message=".*copying X to .raw.*")
-
-
-def _resolve_marker_ensembl_ids(
-    feature_name: pd.Series,
-    marker_symbols: tuple,
-    source_label: str,
-) -> list[str]:
-    """
-    Resolve gene symbols to Ensembl IDs via a source's var['feature_name'].
-
-    Kamath/ASAP's own var has no gene-symbol column post-load, and
-    ad.concat(merge='same') doesn't reliably preserve one onto the merged
-    object either, so this looks symbols up against one source (Menon or
-    Siletti) BEFORE the merge, not against merged.var itself.
-
-    Parameters
-    ----------
-    feature_name : pd.Series
-        A source's `adata.var['feature_name']`, indexed by Ensembl ID.
-    marker_symbols : tuple
-        Gene symbols to resolve.
-    source_label : str
-        Label for the warning message (e.g. 'Menon').
-
-    Returns
-    -------
-    list[str]
-        Ensembl IDs found. Unmatched symbols are warned about, not raised on.
-    """
-    # feature_name is categorical and can have duplicate symbol values
-    # (distinct Ensembl IDs sharing one symbol) -- both break .reindex().
-    symbols_str = feature_name.astype(str)
-    symbol_to_ensembl = pd.Series(symbols_str.index, index=symbols_str.values)
-    symbol_to_ensembl = symbol_to_ensembl[~symbol_to_ensembl.index.duplicated(keep="first")]
-    found = symbol_to_ensembl.reindex(marker_symbols)
-    missing = [s for s, e in zip(marker_symbols, found) if pd.isna(e)]
-    if missing:
-        print(f"  Warning: {len(missing)}/{len(marker_symbols)} Kamath DA marker symbols "
-              f"not found in {source_label}'s var['feature_name']: {missing}")
-    return found.dropna().tolist()
 
 
 def preprocess_merged(adata: ad.AnnData, n_hvgs: int) -> ad.AnnData:
@@ -464,8 +429,9 @@ def _require_cache(path: str) -> None:
     if not os.path.exists(path):
         raise FileNotFoundError(
             f"Required cache not found: {path}\n"
-            "Run downsample_kamath_menon_siletti_asap.py first, with the "
-            "same --kamath-non-da-per-type (or --kamath-all-random --downsample-kamath) / "
+            "Run 03_downsample_kamath_menon_siletti_asap.py first, with the "
+            "same --kamath-non-da-per-type (or --kamath-all-random / --kamath-cell-type-min, "
+            "both paired with --downsample-kamath) / "
             "--downsample-menon / --siletti-scale / --downsample-asap-cohort values."
         )
 
@@ -476,10 +442,14 @@ def main(args: argparse.Namespace) -> None:
     scvi.settings.seed = 42
     t_start = time.monotonic()
 
+    if args.kamath_all_random and args.kamath_cell_type_min > 0:
+        parser.error("--kamath-all-random and --kamath-cell-type-min are mutually exclusive.")
     if args.kamath_all_random and args.downsample_kamath is None:
         parser.error("--downsample-kamath is required when --kamath-all-random is set.")
-    if not args.kamath_all_random and args.downsample_kamath is not None:
-        parser.error("--downsample-kamath is only valid when --kamath-all-random is set.")
+    if args.kamath_cell_type_min > 0 and args.downsample_kamath is None:
+        parser.error("--downsample-kamath is required when --kamath-cell-type-min is set.")
+    if args.downsample_kamath is not None and not args.kamath_all_random and args.kamath_cell_type_min == 0:
+        parser.error("--downsample-kamath requires --kamath-all-random or --kamath-cell-type-min.")
 
     print("\n=== Locating cached preQC/postQC intermediate files ===")
     kamath_dir = os.path.join(_REFERENCE_DATA_DIR, "kamath")
@@ -492,6 +462,9 @@ def main(args: argparse.Namespace) -> None:
 
     if args.kamath_all_random:
         kamath_anchor = os.path.join(kamath_dir, "intermediate", "kamath_merged_all_rand")
+        kamath_tag = str(args.downsample_kamath)
+    elif args.kamath_cell_type_min > 0:
+        kamath_anchor = os.path.join(kamath_dir, "intermediate", f"kamath_merged_cell_type_min{args.kamath_cell_type_min}")
         kamath_tag = str(args.downsample_kamath)
     else:
         kamath_anchor = os.path.join(kamath_dir, "intermediate", "kamath_merged_da_all_non_da")
@@ -627,13 +600,13 @@ def main(args: argparse.Namespace) -> None:
                     "var['feature_name'] column to resolve marker gene symbols "
                     "to Ensembl IDs, but it was not found on the loaded Menon cache."
                 )
-            marker_ensembl_ids = _resolve_marker_ensembl_ids(
-                menon_feature_name, _KAMATH_DA_MARKER_SYMBOLS, "Menon"
+            marker_ensembl_ids = resolve_marker_ensembl_ids(
+                menon_feature_name, KAMATH_DA_MARKER_SYMBOLS, "Menon"
             )
             in_markers = merged.var_names.isin(marker_ensembl_ids)
             train_mask = merged.var["highly_variable"].to_numpy() | in_markers
             n_markers_added = int((in_markers & ~merged.var["highly_variable"].to_numpy()).sum())
-            print(f"  {len(marker_ensembl_ids)}/{len(_KAMATH_DA_MARKER_SYMBOLS)} Kamath DA markers "
+            print(f"  {len(marker_ensembl_ids)}/{len(KAMATH_DA_MARKER_SYMBOLS)} Kamath DA markers "
                   f"resolved to Ensembl IDs in the merged panel; {n_markers_added} added beyond the HVG set")
         else:  # "list"
             with open(args.infile_gene_selection) as f:
@@ -655,8 +628,8 @@ def main(args: argparse.Namespace) -> None:
                 "to resolve the DA marker genes for the SAVED (HVG ∪ markers) "
                 "panel, even though training uses --infile-gene-selection instead."
             )
-        marker_ensembl_ids = _resolve_marker_ensembl_ids(
-            menon_feature_name, _KAMATH_DA_MARKER_SYMBOLS, "Menon"
+        marker_ensembl_ids = resolve_marker_ensembl_ids(
+            menon_feature_name, KAMATH_DA_MARKER_SYMBOLS, "Menon"
         )
         save_mask = merged.var["highly_variable"].to_numpy() | merged.var_names.isin(marker_ensembl_ids)
         n_before = merged.n_vars
@@ -779,7 +752,7 @@ if __name__ == "__main__":
         action=argparse.BooleanOptionalAction,
         default=True,
         help="Use the QC-filtered (postQC) cache for each of the four sources\n"
-             "(built by downsample_kamath_menon_siletti_asap.py). Pass\n"
+             "(built by 03_downsample_kamath_menon_siletti_asap.py). Pass\n"
              "--no-use-qc-filtered to use the preQC (downsampled but\n"
              "unfiltered) cache instead, for a controlled A/B comparison of\n"
              "QC's actual effect on integration — both were downsampled\n"
@@ -804,7 +777,7 @@ if __name__ == "__main__":
         "--kamath-non-da-per-type",
         type=int,
         default=_DEFAULT_KAMATH_NON_DA_PER_TYPE,
-        help="Must match the value passed to downsample_kamath_menon_siletti_asap.py\n"
+        help="Must match the value passed to 03_downsample_kamath_menon_siletti_asap.py\n"
              "-- used only to reconstruct the matching Kamath cache filename,\n"
              "not to re-downsample. Ignored when --kamath-all-random is set.\n"
              f"[Default: {_DEFAULT_KAMATH_NON_DA_PER_TYPE}]",
@@ -814,24 +787,35 @@ if __name__ == "__main__":
         action=argparse.BooleanOptionalAction,
         default=False,
         help="Load the all-random Kamath pool (kamath_merged_all_rand_N) produced\n"
-             "by downsample_kamath_menon_siletti_asap.py --kamath-all-random.\n"
-             "Requires --downsample-kamath. Incompatible without it.\n"
+             "by 03_downsample_kamath_menon_siletti_asap.py --kamath-all-random.\n"
+             "Requires --downsample-kamath. Mutually exclusive with --kamath-cell-type-min.\n"
              "[Default: False]",
+    )
+    parser.add_argument(
+        "--kamath-cell-type-min",
+        type=int,
+        default=0,
+        help="Load the per-cell-type-min Kamath pool (kamath_merged_cell_type_minN_M)\n"
+             "produced by 03_downsample_kamath_menon_siletti_asap.py --kamath-cell-type-min.\n"
+             "Must match the value used there. Requires --downsample-kamath.\n"
+             "Mutually exclusive with --kamath-all-random. 0 = disabled.\n"
+             "[Default: 0]",
     )
     parser.add_argument(
         "--downsample-kamath",
         type=int,
         default=None,
-        help="Must match --downsample-kamath passed to downsample_kamath_menon_siletti_asap.py\n"
+        help="Must match --downsample-kamath passed to 03_downsample_kamath_menon_siletti_asap.py\n"
              "-- used only to reconstruct the matching Kamath cache filename,\n"
-             "not to re-downsample. Required when --kamath-all-random is set.\n"
+             "not to re-downsample. Required when --kamath-all-random or\n"
+             "--kamath-cell-type-min is set.\n"
              "[Default: None]",
     )
     parser.add_argument(
         "--downsample-menon",
         type=int,
         default=_DEFAULT_DOWNSAMPLE_MENON,
-        help="Must match the value passed to downsample_kamath_menon_siletti_asap.py\n"
+        help="Must match the value passed to 03_downsample_kamath_menon_siletti_asap.py\n"
              "-- used only to reconstruct the matching Menon cache filename,\n"
              "not to re-downsample.\n"
              f"[Default: {_DEFAULT_DOWNSAMPLE_MENON}]",
@@ -841,7 +825,7 @@ if __name__ == "__main__":
         type=int,
         choices=sorted(_SILETTI_SCALE_PRESETS),
         default=_SILETTI_DEFAULT_SCALE,
-        help="Must match the value passed to downsample_kamath_menon_siletti_asap.py\n"
+        help="Must match the value passed to 03_downsample_kamath_menon_siletti_asap.py\n"
              "-- used only to reconstruct the matching Siletti cache filename,\n"
              "not to re-downsample.\n"
              f"[Default: {_SILETTI_DEFAULT_SCALE}]",
@@ -850,7 +834,7 @@ if __name__ == "__main__":
         "--downsample-asap-cohort",
         type=int,
         default=_DEFAULT_DOWNSAMPLE_ASAP_COHORT,
-        help="Must match the value passed to downsample_kamath_menon_siletti_asap.py\n"
+        help="Must match the value passed to 03_downsample_kamath_menon_siletti_asap.py\n"
              "-- used only to reconstruct the matching ASAP cache filename,\n"
              "not to re-downsample.\n"
              f"[Default: {_DEFAULT_DOWNSAMPLE_ASAP_COHORT}]",
@@ -878,7 +862,7 @@ if __name__ == "__main__":
              "    sc-rnaseq-wf's own cohort_analysis process task, which\n"
              "    physically discards non-HVG genes the same way.\n"
              "  hvg_u_da_markers  - union of the HVGs and the 17 Kamath et al.\n"
-             "    (Nat Neurosci 2022) DA marker genes (_KAMATH_DA_MARKER_SYMBOLS),\n"
+             "    (Nat Neurosci 2022) DA marker genes (KAMATH_DA_MARKER_SYMBOLS),\n"
              "    so canonical DA identity/subtype markers are never dropped\n"
              "    from training even if HVG selection alone would miss them.\n"
              "  list              - subset to exactly the Ensembl gene IDs listed\n"
