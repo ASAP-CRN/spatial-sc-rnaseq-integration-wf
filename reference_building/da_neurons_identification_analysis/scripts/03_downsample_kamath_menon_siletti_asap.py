@@ -8,7 +8,7 @@ of the following sources:
 - ASAP v3.1.0/2025-12-01T22-36-30Z
 
 Phase 1 of a two-script pipeline (CPU-only: scrublet, filtering,
-downsampling). Run this script first, then integrate_kamath_menon_siletti_asap.py
+downsampling). Run this script first, then 04_integrate_kamath_menon_siletti_asap.py
 (GPU-bound scVI, scANVI) with the SAME --kamath-non-da-per-type /
 --kamath-all-random / --kamath-cell-type-min / --downsample-kamath / --downsample-menon /
 --siletti-scale / --downsample-asap-cohort values, so it locates the caches this script wrote.
@@ -35,7 +35,7 @@ defaults unless otherwise specified.
 Inputs
 ------
 1) H5AD's for each source.
-   Get Kamath, Menon, Siletti H5AD files by running download_kamath_menon_siletti.py.
+   Get Kamath, Menon, Siletti H5AD files by running 01_download_kamath_menon_siletti.py.
    ASAP H5AD files need to be manually downloaded.
 2) Requires Siletti re-annotation manually-downloaded Allen Brain Cell Atlas files at
    reference_building/da_neurons_identification_analysis/reference_data/allen-brain-cell-atlas/metadata/ (see that directory's README).
@@ -489,7 +489,7 @@ def load_kamath(
 
     Both Nurr1-sorted files must be in `exclude_files` — barcode overlap
     confirmed their cells already appear in the 7 cell-type files (see
-    kamath_overlap.py); including them would duplicate ~184k cells.
+    02_kamath_overlap.py); including them would duplicate ~184k cells.
 
     Parameters
     ----------
@@ -523,7 +523,7 @@ def load_kamath(
     if not paths:
         raise FileNotFoundError(
             f"No H5AD files found in {kamath_h5ad_dir}. "
-            "Run download_kamath_menon_siletti.py first."
+            "Run 01_download_kamath_menon_siletti.py first."
         )
 
     exclude_basenames = {os.path.basename(f) for f in exclude_files}
@@ -934,7 +934,7 @@ def _load_all_neuron_barcodes(siletti_dir: str) -> set:
     """Barcodes present in Siletti's whole-atlas 'all neurons' file."""
     path = os.path.join(siletti_dir, f"{_SILETTI_ALL_NEURONS_FILE}.h5ad")
     if not os.path.exists(path):
-        raise FileNotFoundError(f"{path} not found. Run download_kamath_menon_siletti.py first.")
+        raise FileNotFoundError(f"{path} not found. Run 01_download_kamath_menon_siletti.py first.")
     a = sc.read_h5ad(path, backed="r")
     return set(a.obs_names)
 
@@ -987,7 +987,7 @@ def load_siletti(
     for region_label, file_stem in _SILETTI_MIDBRAIN_REGIONS.items():
         h5ad_path = os.path.join(siletti_dir, f"{file_stem}.h5ad")
         if not os.path.exists(h5ad_path):
-            raise FileNotFoundError(f"{h5ad_path} not found. Run download_kamath_menon_siletti.py first.")
+            raise FileNotFoundError(f"{h5ad_path} not found. Run 01_download_kamath_menon_siletti.py first.")
 
         backed = sc.read_h5ad(h5ad_path, backed="r")
         obs_names = set(backed.obs_names)
@@ -1540,7 +1540,11 @@ def main(args: argparse.Namespace) -> None:
         "\nDone. Intermediate preQC/postQC caches (and each dataset's own "
         "qc_summary.tsv, next to its caches) are ready under each source's "
         "intermediate/ directory. Run "
+<<<<<<< HEAD:reference_building/da_neurons_identification_analysis/scripts/downsample_kamath_menon_siletti_asap.py
         "integrate_kamath_menon_siletti_asap.py next, with the SAME "
+=======
+        "04_integrate_kamath_menon_siletti_asap.py next, with the SAME "
+>>>>>>> 848e15d (Rename DA analysis scripts to add sequence numbers [skip ci]):reference_building/da_neurons_identification_analysis/scripts/03_downsample_kamath_menon_siletti_asap.py
         "--kamath-non-da-per-type / --kamath-all-random / --kamath-cell-type-min / "
         "--downsample-kamath / --downsample-menon / --siletti-scale / "
         "--downsample-asap-cohort values, to locate them and "
@@ -1575,7 +1579,7 @@ if __name__ == "__main__":
             "human_nurr_negative_nuclei_10x_scrna_seq.h5ad"
         ),
         help="Comma-separated Kamath H5AD filenames to skip. Both Nurr files\n"
-             "excluded by default (see kamath_overlap.py).\n"
+             "excluded by default (see 02_kamath_overlap.py).\n"
              "[Default: human_nurr_positive_nuclei_10x_scrna_seq.h5ad,\n"
              "          human_nurr_negative_nuclei_10x_scrna_seq.h5ad]",
     )

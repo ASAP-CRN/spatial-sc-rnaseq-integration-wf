@@ -9,16 +9,20 @@ See reference_building/da_neurons_identification_analysis/README.md for more det
 This is a one-time analysis, not part of the spatial deconvolution WDL pipeline.
 
 Relationship to other scripts:
-- Run integrate_kamath_menon_siletti_asap.py after downsample_kamath_menon_siletti_asap.py
+- Run 04_integrate_kamath_menon_siletti_asap.py after 03_downsample_kamath_menon_siletti_asap.py
   with the same values for the following parameters:
   --kamath-non-da-per-type (or --kamath-all-random / --kamath-cell-type-min, both paired with
   --downsample-kamath), --downsample-menon,
+<<<<<<< HEAD:reference_building/da_neurons_identification_analysis/scripts/integrate_kamath_menon_siletti_asap.py
   --siletti-scale and --downsample-asap-cohort so integrate_kamath_menon_siletti_asap.py
+=======
+  --siletti-scale and --downsample-asap-cohort so 04_integrate_kamath_menon_siletti_asap.py
+>>>>>>> 848e15d (Rename DA analysis scripts to add sequence numbers [skip ci]):reference_building/da_neurons_identification_analysis/scripts/04_integrate_kamath_menon_siletti_asap.py
   finds the right cached files.
   These downsample_* and integrate_* scripts were split to:
   a) control the type of machine needed CPU (cheaper) vs. GPU (expensive)
   b) cache intermediate files to restart the run if needed
-- Run integrate_menon_siletti_asap.py instead of integrate_kamath_menon_siletti_asap.py
+- Run 05_integrate_menon_siletti_asap.py instead of 04_integrate_kamath_menon_siletti_asap.py
   for a run without Kamath's data and using Siletti (Allen) labels as ground truth.
 
 Integration strategy
@@ -34,11 +38,11 @@ Integration strategy
 
 Usage example
 -------------
-A typical integrate_kamath_menon_siletti_asap.py run, with ~100k cells per dataset (total ~400k cells) could
+A typical 04_integrate_kamath_menon_siletti_asap.py run, with ~100k cells per dataset (total ~400k cells) could
 run in a MacBook Pro with 36GB RAM and an Apple M3 Pro chip in 7-9 hours.
 
 ```
-python3 integrate_kamath_menon_siletti_asap.py \
+python3 04_integrate_kamath_menon_siletti_asap.py \
     --output-dir /path/to/reference_building/da_neurons_identification_analysis/output/ \
     --kamath-non-da-per-type 13000 \
     --downsample-menon 100000 \
@@ -429,7 +433,11 @@ def _require_cache(path: str) -> None:
     if not os.path.exists(path):
         raise FileNotFoundError(
             f"Required cache not found: {path}\n"
+<<<<<<< HEAD:reference_building/da_neurons_identification_analysis/scripts/integrate_kamath_menon_siletti_asap.py
             "Run downsample_kamath_menon_siletti_asap.py first, with the "
+=======
+            "Run 03_downsample_kamath_menon_siletti_asap.py first, with the "
+>>>>>>> 848e15d (Rename DA analysis scripts to add sequence numbers [skip ci]):reference_building/da_neurons_identification_analysis/scripts/04_integrate_kamath_menon_siletti_asap.py
             "same --kamath-non-da-per-type (or --kamath-all-random / --kamath-cell-type-min, "
             "both paired with --downsample-kamath) / "
             "--downsample-menon / --siletti-scale / --downsample-asap-cohort values."
@@ -752,7 +760,7 @@ if __name__ == "__main__":
         action=argparse.BooleanOptionalAction,
         default=True,
         help="Use the QC-filtered (postQC) cache for each of the four sources\n"
-             "(built by downsample_kamath_menon_siletti_asap.py). Pass\n"
+             "(built by 03_downsample_kamath_menon_siletti_asap.py). Pass\n"
              "--no-use-qc-filtered to use the preQC (downsampled but\n"
              "unfiltered) cache instead, for a controlled A/B comparison of\n"
              "QC's actual effect on integration — both were downsampled\n"
@@ -777,7 +785,7 @@ if __name__ == "__main__":
         "--kamath-non-da-per-type",
         type=int,
         default=_DEFAULT_KAMATH_NON_DA_PER_TYPE,
-        help="Must match the value passed to downsample_kamath_menon_siletti_asap.py\n"
+        help="Must match the value passed to 03_downsample_kamath_menon_siletti_asap.py\n"
              "-- used only to reconstruct the matching Kamath cache filename,\n"
              "not to re-downsample. Ignored when --kamath-all-random is set.\n"
              f"[Default: {_DEFAULT_KAMATH_NON_DA_PER_TYPE}]",
@@ -787,7 +795,11 @@ if __name__ == "__main__":
         action=argparse.BooleanOptionalAction,
         default=False,
         help="Load the all-random Kamath pool (kamath_merged_all_rand_N) produced\n"
+<<<<<<< HEAD:reference_building/da_neurons_identification_analysis/scripts/integrate_kamath_menon_siletti_asap.py
              "by downsample_kamath_menon_siletti_asap.py --kamath-all-random.\n"
+=======
+             "by 03_downsample_kamath_menon_siletti_asap.py --kamath-all-random.\n"
+>>>>>>> 848e15d (Rename DA analysis scripts to add sequence numbers [skip ci]):reference_building/da_neurons_identification_analysis/scripts/04_integrate_kamath_menon_siletti_asap.py
              "Requires --downsample-kamath. Mutually exclusive with --kamath-cell-type-min.\n"
              "[Default: False]",
     )
@@ -796,7 +808,11 @@ if __name__ == "__main__":
         type=int,
         default=0,
         help="Load the per-cell-type-min Kamath pool (kamath_merged_cell_type_minN_M)\n"
+<<<<<<< HEAD:reference_building/da_neurons_identification_analysis/scripts/integrate_kamath_menon_siletti_asap.py
              "produced by downsample_kamath_menon_siletti_asap.py --kamath-cell-type-min.\n"
+=======
+             "produced by 03_downsample_kamath_menon_siletti_asap.py --kamath-cell-type-min.\n"
+>>>>>>> 848e15d (Rename DA analysis scripts to add sequence numbers [skip ci]):reference_building/da_neurons_identification_analysis/scripts/04_integrate_kamath_menon_siletti_asap.py
              "Must match the value used there. Requires --downsample-kamath.\n"
              "Mutually exclusive with --kamath-all-random. 0 = disabled.\n"
              "[Default: 0]",
@@ -805,7 +821,7 @@ if __name__ == "__main__":
         "--downsample-kamath",
         type=int,
         default=None,
-        help="Must match --downsample-kamath passed to downsample_kamath_menon_siletti_asap.py\n"
+        help="Must match --downsample-kamath passed to 03_downsample_kamath_menon_siletti_asap.py\n"
              "-- used only to reconstruct the matching Kamath cache filename,\n"
              "not to re-downsample. Required when --kamath-all-random or\n"
              "--kamath-cell-type-min is set.\n"
@@ -815,7 +831,7 @@ if __name__ == "__main__":
         "--downsample-menon",
         type=int,
         default=_DEFAULT_DOWNSAMPLE_MENON,
-        help="Must match the value passed to downsample_kamath_menon_siletti_asap.py\n"
+        help="Must match the value passed to 03_downsample_kamath_menon_siletti_asap.py\n"
              "-- used only to reconstruct the matching Menon cache filename,\n"
              "not to re-downsample.\n"
              f"[Default: {_DEFAULT_DOWNSAMPLE_MENON}]",
@@ -825,7 +841,7 @@ if __name__ == "__main__":
         type=int,
         choices=sorted(_SILETTI_SCALE_PRESETS),
         default=_SILETTI_DEFAULT_SCALE,
-        help="Must match the value passed to downsample_kamath_menon_siletti_asap.py\n"
+        help="Must match the value passed to 03_downsample_kamath_menon_siletti_asap.py\n"
              "-- used only to reconstruct the matching Siletti cache filename,\n"
              "not to re-downsample.\n"
              f"[Default: {_SILETTI_DEFAULT_SCALE}]",
@@ -834,7 +850,7 @@ if __name__ == "__main__":
         "--downsample-asap-cohort",
         type=int,
         default=_DEFAULT_DOWNSAMPLE_ASAP_COHORT,
-        help="Must match the value passed to downsample_kamath_menon_siletti_asap.py\n"
+        help="Must match the value passed to 03_downsample_kamath_menon_siletti_asap.py\n"
              "-- used only to reconstruct the matching ASAP cache filename,\n"
              "not to re-downsample.\n"
              f"[Default: {_DEFAULT_DOWNSAMPLE_ASAP_COHORT}]",
