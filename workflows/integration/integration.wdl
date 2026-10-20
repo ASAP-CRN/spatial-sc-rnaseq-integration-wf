@@ -155,10 +155,6 @@ task cell2location_visium {
 	command <<<
 		set -euo pipefail
 
-		# utils/ lives alongside the scripts in the container at /opt/scripts/utils/
-		# (requires: COPY utils /opt/scripts/utils in the Dockerfile build context)
-		export PYTHONPATH=/opt/scripts
-
 		/usr/bin/time -v python3 /opt/scripts/cell2location_deconv.py \
 			--run-stages ~{run_stages} \
 			--sample-id ~{sample_id} \
