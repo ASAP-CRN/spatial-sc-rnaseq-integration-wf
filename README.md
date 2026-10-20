@@ -44,7 +44,7 @@ Upstream inputs consumed per source:
 
 | Source workflow | Level | Output consumed |
 | :- | :- | :- |
-| sc-rnaseq-wf `cohort_analysis` | cohort (reference) | `final_adata_object`, `final_metadata_csv`, `scanvi_cell_types_parquet` |
+| sc-rnaseq-wf `cohort_analysis` (downsampled and/or supplemented with other sources) | cohort (reference) | `final_adata_object` |
 | spatial-transcriptomics-wf `spatial_visium preprocess` | per-sample, raw UMI counts | `qc_adata_objects` (one per sample) |
 
 The deconvolution sub-workflow ([workflows/integration/integration.wdl](workflows/integration/integration.wdl)) performs the following steps per Visium sample:
@@ -73,10 +73,9 @@ An input template file can be found at [workflows/inputs.json](workflows/inputs.
 
 | Type | Name | Description |
 | :- | :- | :- |
-| String | cohort_id | Name of the cohort; used to name output files. |
-| Array[[`ScRnaseqProject`](#scrnaseqproject)] | sc_rnaseq_projects | Processed cohort outputs from sc-rnaseq-wf used as the deconvolution reference. Typically one entry representing the cross-team cohort. |
+| File | sc_rnaseq_final_adata_object | scRNA-seq reference AnnData; used to deconvolute all spatial samples. Typically a downsampled version of sc-rnaseq-wf `cohort_analysis`'s `final_adata_object`, either alone or supplemented with other sources, such as Kamath/Siletti. |
 | Array[[`SpatialVisiumProject`](#spatialvisiumproject)]? | spatial_visium_projects | Processed project-level outputs from spatial-transcriptomics-wf (Visium) to deconvolute per sample. [[ ]] |
-| File? | sc_rnaseq_reference_cell2location_model | Pre-computed `<ref_stem>_inf_aver.csv.gz` from a previous run. When provided, Stage 1 NB regression is skipped for all samples. When omitted, Stage 1 is trained from `sc_rnaseq_projects[0].final_adata_object`. |
+| File? | sc_rnaseq_reference_cell2location_model | Pre-computed `<ref_stem>_inf_aver.csv.gz` from a previous run. When provided, Stage 1 NB regression is skipped for all samples. When omitted, Stage 1 is trained from `sc_rnaseq_final_adata_object`. |
 | String? | batch_key | Column in reference .obs used as batch covariate in the NB regression model. ['batch_id'] |
 | String? | cell_type_key | Column in reference .obs to use as the cell type label. ['cell_type_pred'] |
 | Int? | n_cells_per_spot | Cell2location N_cells_per_location prior; 8 for brain Visium. [8] |
@@ -85,7 +84,7 @@ An input template file can be found at [workflows/inputs.json](workflows/inputs.
 | Int? | max_epochs_spatial | Cell2location spatial mapping (Stage 2) training epochs. [30000] |
 | Int? | n_comps | Number of principal components to compute. [30] |
 | Int? | n_neighbors | Size of local neighborhood used for manifold approximation. [15] |
-| Array[Float]? | leiden_res | Leiden resolutions controlling the coarseness of clustering. [0.05, 0.1, 0.2, 0.4] |
+| Array[Float]? | leiden_res | Leiden resolutions controlling the coarseness of clustering. [0.2, 0.5, 1.0] |
 | String | cohort_raw_data_bucket_spatial_sc_rnaseq | Bucket to upload cohort deconvolution intermediate files to. |
 | String | container_registry | Container registry where workflow Docker images are hosted. |
 | String? | zones | GCP zones where compute will take place. ['us-central1-c us-central1-f'] |
@@ -96,18 +95,6 @@ For script testing, these inputs can be used:
 - Spatial: `gs://asap-wdl-ci/workflow_execution/spatial_visium/preprocess/counts_to_adata/1.0.0/ASAP_PMBDS_000003_s007_Rep1.cleaned_unfiltered.h5ad`
 
 ## Structures
-
-### `ScRnaseqProject`
-
-Wraps the final cohort-level outputs of [sc-rnaseq-wf](https://github.com/ASAP-CRN/sc-rnaseq-wf) `cohort_analysis`. Used as the scRNA-seq reference for all spatial samples.
-
-| Type | Name | Description |
-| :- | :- | :- |
-| String | asap_team_id | ASAP-generated unique identifier for team; used for naming output files. |
-| String | asap_dataset_id | ASAP-generated unique identifier for dataset; used for metadata. |
-| String | asap_dataset_doi_url | ASAP-generated Zenodo DOI URL referencing the dataset. |
-| File | final_adata_object | `cohort_analysis.final_adata_object` (.h5ad) — Harmony-integrated, cell-type-annotated AnnData. |
-| String | raw_data_bucket | Raw data bucket; intermediate output files are stored here. |
 
 ### `SpatialVisiumProject`
 
@@ -132,12 +119,13 @@ One Visium sample. Source: `spatial_visium preprocess.qc_adata_objects` from [sp
 
 ## Generating the inputs JSON
 
-The inputs JSON may be generated manually. Because this workflow consumes processed outputs from upstream sibling workflows rather than raw FASTQ files, the `sc_rnaseq_projects` and `spatial_visium_projects` arrays must reference GCS paths to the `.h5ad` and `.parquet` files already produced by those workflows.
+The inputs JSON may be generated manually. Because this workflow consumes processed outputs from upstream sibling workflows rather than raw FASTQ files, `sc_rnaseq_final_adata_object` and the `spatial_visium_projects` array must reference GCS paths to the `.h5ad` files already produced by those workflows.
 
 The relevant GCS paths follow the staging bucket structure of the sibling workflows:
 
 ```
-# sc-rnaseq-wf outputs (cross-team cohort)
+# sc-rnaseq-wf outputs (downsampled cohort H5AD) -- `sc_rnaseq_final_adata_object` may instead
+# point to a custom-built reference (e.g. supplemented with other sources, such as Kamath/Siletti).
 asap-dev-{cohort}-pmdbs-sn-rnaseq-{context}/pmdbs_sc_rnaseq/release/${crn_release_version}/cohort_analysis/
   ${cohort_id}.final.h5ad
 
@@ -149,16 +137,7 @@ Example inputs JSON fragment:
 
 ```json
 {
-  "spatial_sc_rnaseq_integration.cohort_id": "asap-cohort",
-  "spatial_sc_rnaseq_integration.sc_rnaseq_projects": [
-    {
-      "asap_team_id": "cohort",
-      "asap_dataset_id": "DS_PMDBS_XXXX",
-      "asap_dataset_doi_url": "https://doi.org/...",
-      "final_adata_object": "gs://asap-raw-cohort-.../cohort_analysis/asap-cohort.final.h5ad",
-      "raw_data_bucket": "gs://asap-raw-cohort-..."
-    }
-  ],
+  "spatial_sc_rnaseq_integration.sc_rnaseq_final_adata_object": "gs://asap-raw-cohort-.../cohort_analysis/asap-cohort.final.h5ad",
   "spatial_sc_rnaseq_integration.spatial_visium_projects": [
     {
       "asap_team_id": "team-xxyy",

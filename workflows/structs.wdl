@@ -1,17 +1,5 @@
 version 1.0
 
-# Processed outputs from sc-rnaseq-wf used as inputs to this workflow.
-# Source fields come from the cohort_analysis output block of sc-rnaseq-wf.
-struct ScRnaseqProject {
-	String asap_team_id
-	String asap_dataset_id
-	String asap_dataset_doi_url
-
-	File final_adata_object
-
-	String raw_data_bucket
-}
-
 # One Visium sample: per-sample post-QC adata (raw UMI counts) from spatial-transcriptomics-wf.
 # Source: spatial_visium preprocess.qc_adata_objects — one file per sample, post-QC.
 struct SpatialVisiumSample {
