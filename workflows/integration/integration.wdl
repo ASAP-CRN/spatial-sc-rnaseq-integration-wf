@@ -205,7 +205,6 @@ task cell2location_visium {
 		bootDiskSizeGb: 40
 		gpuType: "nvidia-tesla-t4"
 		gpuCount: 1
-		nvidiaDriverVersion: "545.23.08" #!UnknownRuntimeKey -- GCP Batch ignores this and auto-selects the driver version
 		zones: zones
 	}
 }
