@@ -148,13 +148,7 @@ task cell2location_visium {
 		String zones
 	}
 
-	Int disk_size = ceil(
-		size(spatial_adata, "GB")
-		+ size(sc_rnaseq_reference_adata, "GB")
-		+ size(sc_rnaseq_reference_cell2location_model, "GB")
-		+ size(spatial_deconvolution_adata, "GB")
-		+ 50
-	)
+	Int disk_size = ceil(size([spatial_adata, sc_rnaseq_reference_adata, sc_rnaseq_reference_cell2location_model, spatial_deconvolution_adata], "GB") + 50)
 	# Fix expected sample_id in outfile name.
 	String corrected_sample_id = sub(sample_id, "^ASAP_PMBDS_", "ASAP_PMDBS_")
 
