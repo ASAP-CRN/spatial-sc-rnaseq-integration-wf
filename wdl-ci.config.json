@@ -19,7 +19,7 @@
       "tasks": {
         "cell2location_build_reference": {
           "key": "cell2location_build_reference",
-          "digest": "upespvr2x5eywjypt6mkjbmjkxleusrz",
+          "digest": "",
           "tests": [
             {
               "inputs": {
@@ -49,7 +49,7 @@
         },
         "cell2location_deconvolute_visium": {
           "key": "cell2location_deconvolute_visium",
-          "digest": "n64l36w3xszzjxrrkp35og3euk5d7vep",
+          "digest": "",
           "tests": [
             {
               "inputs": {
