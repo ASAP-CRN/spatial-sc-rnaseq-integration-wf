@@ -47,11 +47,12 @@ Upstream inputs consumed per source:
 | sc-rnaseq-wf `cohort_analysis` (downsampled and/or supplemented with other sources) | cohort (reference) | `final_adata_object` |
 | spatial-transcriptomics-wf `spatial_visium preprocess` | per-sample, raw UMI counts | `qc_adata_objects` (one per sample) |
 
-The deconvolution sub-workflow ([workflows/integration/integration.wdl](workflows/integration/integration.wdl)) performs the following steps per Visium sample:
+The deconvolution sub-workflow ([workflows/integration/integration.wdl](workflows/integration/integration.wdl)) runs as 2 independent WDL tasks, gated by `run_stages`:
 
-1. **Stage 1 — NB regression** (skipped if `sc_rnaseq_reference_cell2location_model` is provided): train a Negative Binomial regression model on the scRNA-seq reference to estimate per-cell-type gene expression signatures (`inf_aver`).
-2. **Stage 2 — Spatial mapping**: run Cell2location to map cell type abundances onto Visium spots.
-3. **Stage 3 — Downstream analysis**: PCA → neighbours → UMAP → Leiden clustering on deconvoluted cell type abundance vectors (not on gene expression, like `spatial-transcriptomics-wf` does).
+1. **Stage 1 — NB regression** (skipped if `sc_rnaseq_reference_cell2location_model` is provided): train a Negative Binomial regression model on the scRNA-seq reference to estimate per-cell-type gene expression signatures (`inf_aver`). Runs **once to be re-used for all spatial samples**.
+2. **Stage 2 — Spatial mapping**: run Cell2location to map cell type abundances onto Visium spots. Runs once **per Visium sample**, scattered in parallel.
+
+A third stage (PCA → neighbours → UMAP → Leiden clustering on deconvoluted cell type abundance vectors) exists in `cell2location_deconv.py` but is intentionally **not exposed through this WDL** because ASAP spatial samples are clustered upstream by `spatial-transcriptomics-wf`. Stage 3 remains available via the script's own CLI for reference-building and analysis of external samples outside this workflow.
 
 All samples (across all projects) are scattered flat and deconvoluted in parallel.
 
@@ -73,18 +74,16 @@ An input template file can be found at [workflows/inputs.json](workflows/inputs.
 
 | Type | Name | Description |
 | :- | :- | :- |
-| File | sc_rnaseq_reference_adata | scRNA-seq reference AnnData; used to deconvolute all spatial samples. Typically a downsampled version of sc-rnaseq-wf `cohort_analysis`'s `final_adata_object`, either alone or supplemented with other sources, such as Kamath/Siletti. |
+| File? | sc_rnaseq_reference_adata | scRNA-seq reference AnnData; used to deconvolute all spatial samples. Typically a downsampled version of sc-rnaseq-wf `cohort_analysis`'s `final_adata_object`, either alone or supplemented with other sources, such as Kamath/Siletti. Required when `run_stages` includes Stage 1. |
 | Array[[`SpatialVisiumProject`](#spatialvisiumproject)]? | spatial_visium_projects | Processed project-level outputs from spatial-transcriptomics-wf (Visium) to deconvolute per sample. [[ ]] |
-| File? | sc_rnaseq_reference_cell2location_model | Pre-computed `<ref_stem>_inf_aver.csv.gz` from a previous run. When provided, Stage 1 NB regression is skipped for all samples. When omitted, Stage 1 is trained from `sc_rnaseq_reference_adata`. |
+| File? | sc_rnaseq_reference_cell2location_model | Pre-computed `<ref_stem>_inf_aver.csv.gz`. Required when `run_stages` excludes Stage 1. |
 | String? | batch_key | Column in reference .obs used as batch covariate in the NB regression model. ['batch_id'] |
 | String? | cell_type_key | Column in reference .obs to use as the cell type label. ['cell_type_pred'] |
 | Int? | n_cells_per_spot | Cell2location N_cells_per_location prior; 8 for brain Visium. [8] |
 | Int? | detection_alpha | Cell2location detection rate prior (20–200); higher values assume low technical variability. [100] |
 | Int? | max_epochs_ref | NB regression (Stage 1) training epochs. [250] |
 | Int? | max_epochs_spatial | Cell2location spatial mapping (Stage 2) training epochs. [30000] |
-| Int? | n_comps | Number of principal components to compute. [30] |
-| Int? | n_neighbors | Size of local neighborhood used for manifold approximation. [15] |
-| Array[Float]? | leiden_res | Leiden resolutions controlling the coarseness of clustering. [0.2, 0.5, 1.0] |
+| String? | run_stages | Comma-separated subset of `{1,2}` — which stages to run. `"1"` builds the `inf_aver.csv.gz` reference; `"2"` loads the `inf_aver.csv.gz` reference and deconvolutes spatial samples. ['1,2'] |
 | String | cohort_raw_data_bucket_spatial_sc_rnaseq | Bucket to upload cohort deconvolution intermediate files to. |
 | String | container_registry | Container registry where workflow Docker images are hosted. |
 | String? | zones | GCP zones where compute will take place. ['us-central1-c us-central1-f'] |
@@ -302,4 +301,4 @@ Docker images can be built using the [`build_docker_images`](https://github.com/
 
 [`wdl-ci`](https://github.com/DNAstack/wdl-ci) provides tools to validate and test workflows and tasks written in [Workflow Description Language (WDL)](https://github.com/openwdl/wdl). In addition to the tests packaged in `wdl-ci`, the [spatial-sc-rnaseq-integration-wdl-ci-custom-test-dir](./spatial-sc-rnaseq-integration-wdl-ci-custom-test-dir) is a directory containing custom WDL-based tests that are used to test workflow tasks. `wdl-ci` in this repository is set up to run on pull request.
 
-In general, `wdl-ci` will use inputs provided in the [wdl-ci.config.json](./wdl-ci.config.json) and compare current outputs and validated outputs based on changed tasks/workflows to ensure outputs are still valid by meeting the criteria in the specified tests. For example, if the `cell2location_visium` task was changed, then this task would be submitted and that output would be considered the "current output". When inspecting the deconvoluted AnnData object, there is a test specified in the [wdl-ci.config.json](./wdl-ci.config.json) called `check_hdf5`. The test will compare the "current output" and "validated output" (provided in the [wdl-ci.config.json](./wdl-ci.config.json)) to make sure that the `.h5ad` file is still a valid HDF5 file.
+In general, `wdl-ci` will use inputs provided in the [wdl-ci.config.json](./wdl-ci.config.json) and compare current outputs and validated outputs based on changed tasks/workflows to ensure outputs are still valid by meeting the criteria in the specified tests. For example, if the `cell2location_deconvolute_visium` task was changed, then this task would be submitted and that output would be considered the "current output". When inspecting the deconvoluted AnnData object, there is a test specified in the [wdl-ci.config.json](./wdl-ci.config.json) called `check_hdf5`. The test will compare the "current output" and "validated output" (provided in the [wdl-ci.config.json](./wdl-ci.config.json)) to make sure that the `.h5ad` file is still a valid HDF5 file.
