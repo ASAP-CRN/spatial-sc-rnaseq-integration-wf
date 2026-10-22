@@ -102,6 +102,9 @@ workflow spatial_sc_rnaseq_integration {
 		# Flat over all samples; null when run_stages excludes Stage 2.
 		Array[File?] visium_deconvoluted_adata_objects = integration.visium_deconvoluted_adata_objects
 		Array[File?] visium_deconvolution_metadata_csvs = integration.visium_deconvolution_metadata_csvs
+		# Flat over all samples; null when run_stages excludes Stage 3.
+		Array[File?] visium_deconvoluted_clustered_adata_objects = integration.visium_deconvoluted_clustered_adata_objects
+		Array[File?] visium_deconvolution_clustering_metadata_csvs = integration.visium_deconvolution_clustering_metadata_csvs
 		# Built once; null when run_stages excludes Stage 1.
 		File? sc_rnaseq_reference_inf_aver_csv_gz = integration.sc_rnaseq_reference_inf_aver_csv_gz
 	}
@@ -127,8 +130,10 @@ workflow spatial_sc_rnaseq_integration {
 		zones: {help: "GCP zones where compute will run. ['us-central1-c us-central1-f']"}
 
 		# Outputs
-		visium_deconvoluted_adata_objects: {help: "Cell2location deconvoluted AnnData objects (.h5ad), one per Visium sample. Includes Leiden cluster columns when run_stages includes Stage 3."}
-		visium_deconvolution_metadata_csvs: {help: "Per-spot deconvolution metadata CSV cell type fractions. Includes Leiden cluster columns when run_stages includes Stage 3."}
+		visium_deconvoluted_adata_objects: {help: "Cell2location deconvoluted AnnData objects (.h5ad), one per Visium sample; null for a sample when run_stages excludes Stage 2."}
+		visium_deconvolution_metadata_csvs: {help: "Per-spot deconvolution metadata CSV cell type fractions; null for a sample when run_stages excludes Stage 2."}
+		visium_deconvoluted_clustered_adata_objects: {help: "Cell2location deconvoluted AnnData objects (.h5ad) with Leiden cluster columns added, one per Visium sample; null for a sample when run_stages excludes Stage 3."}
+		visium_deconvolution_clustering_metadata_csvs: {help: "Per-spot deconvolution metadata CSV cell type fractions with Leiden cluster columns added; null for a sample when run_stages excludes Stage 3."}
 		sc_rnaseq_reference_inf_aver_csv_gz: {help: "Cell2location reference signature (<ref_stem>_inf_aver.csv.gz), built once for the whole cohort; null when run_stages excludes Stage 1."}
 	}
 }

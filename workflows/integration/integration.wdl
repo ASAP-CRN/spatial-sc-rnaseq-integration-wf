@@ -112,15 +112,12 @@ workflow integration {
 	}
 
 	output {
-		# Flat over all samples; null for a sample when run_stages excludes Stage 2. Whichever of
-		# Stage 2/3 ran last for a given sample is the final object -- Stage 3 rewrites Stage 2's
-		# files with Leiden columns added, it doesn't produce separate ones.
-		Array[File?] visium_deconvoluted_adata_objects = if include_stage3
-			then cell2location_cluster_visium.deconvoluted_adata_object
-			else cell2location_deconvolute_visium.deconvoluted_adata_object
-		Array[File?] visium_deconvolution_metadata_csvs = if include_stage3
-			then cell2location_cluster_visium.deconvolution_metadata_csv
-			else cell2location_deconvolute_visium.deconvolution_metadata_csv
+		# Flat over all samples; null for a sample when run_stages excludes Stage 2.
+		Array[File?] visium_deconvoluted_adata_objects = cell2location_deconvolute_visium.deconvoluted_adata_object
+		Array[File?] visium_deconvolution_metadata_csvs = cell2location_deconvolute_visium.deconvolution_metadata_csv
+		# Flat over all samples; null for a sample when run_stages excludes Stage 3.
+		Array[File?] visium_deconvoluted_clustered_adata_objects = cell2location_cluster_visium.deconvoluted_adata_object
+		Array[File?] visium_deconvolution_clustering_metadata_csvs = cell2location_cluster_visium.deconvolution_metadata_csv
 		# Built once; null when run_stages excludes Stage 1.
 		File? sc_rnaseq_reference_inf_aver_csv_gz = cell2location_build_reference.inf_aver_csv_gz
 	}
@@ -147,8 +144,10 @@ workflow integration {
 		zones: {help: "GCP zones where compute will run."}
 
 		# Outputs
-		visium_deconvoluted_adata_objects: {help: "Cell2location deconvoluted AnnData objects (.h5ad), one per Visium sample. Includes Leiden cluster columns when run_stages includes Stage 3."}
-		visium_deconvolution_metadata_csvs: {help: "Per-spot deconvolution metadata CSV cell type fractions. Includes Leiden cluster columns when run_stages includes Stage 3."}
+		visium_deconvoluted_adata_objects: {help: "Cell2location deconvoluted AnnData objects (.h5ad), one per Visium sample; null for a sample when run_stages excludes Stage 2."}
+		visium_deconvolution_metadata_csvs: {help: "Per-spot deconvolution metadata CSV cell type fractions; null for a sample when run_stages excludes Stage 2."}
+		visium_deconvoluted_clustered_adata_objects: {help: "Cell2location deconvoluted AnnData objects (.h5ad) with Leiden cluster columns added, one per Visium sample; null for a sample when run_stages excludes Stage 3."}
+		visium_deconvolution_clustering_metadata_csvs: {help: "Per-spot deconvolution metadata CSV cell type fractions with Leiden cluster columns added; null for a sample when run_stages excludes Stage 3."}
 		sc_rnaseq_reference_inf_aver_csv_gz: {help: "Cell2location reference signature (<ref_stem>_inf_aver.csv.gz), built once for the whole cohort; null when run_stages excludes Stage 1."}
 	}
 }
@@ -244,8 +243,8 @@ task cell2location_cluster_visium {
 	>>>
 
 	output {
-		File deconvoluted_adata_object = "~{corrected_sample_id}.deconvoluted.h5ad"
-		File deconvolution_metadata_csv = "~{corrected_sample_id}.deconvolution_metadata.csv.gz"
+		File deconvoluted_adata_object = "~{corrected_sample_id}.deconvoluted_clustered.h5ad"
+		File deconvolution_metadata_csv = "~{corrected_sample_id}.deconvolution_clustering_metadata.csv.gz"
 	}
 
 	runtime {

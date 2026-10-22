@@ -50,8 +50,8 @@ Upstream inputs consumed per source:
 The deconvolution sub-workflow ([workflows/integration/integration.wdl](workflows/integration/integration.wdl)) runs as 3 independent WDL tasks, gated by `run_stages`:
 
 1. **Stage 1 — NB regression** (skipped if `sc_rnaseq_reference_cell2location_model` is provided): train a Negative Binomial regression model on the scRNA-seq reference to estimate per-cell-type gene expression signatures (`inf_aver`). Runs **once for all spatial samples**.
-2. **Stage 2 — Spatial mapping**: run Cell2location to map cell type abundances onto Visium spots. Runs once **per Visium sample**, scattered in parallel.
-3. **Stage 3 — Clustering**: PCA → neighbours → UMAP → Leiden clustering on each spot's **deconvolved cell type fractions** (Stage 2's output) — not on gene expression. Runs once **per Visium sample**, scattered in parallel.
+2. **Stage 2 — Spatial mapping**: run Cell2location to map cell type abundances onto Visium spots. Runs once **per Visium sample**, scattered in parallel. Writes `{sample_id}.deconvoluted.h5ad` / `{sample_id}.deconvolution_metadata.csv.gz`.
+3. **Stage 3 — Clustering**: PCA → neighbours → UMAP → Leiden clustering on each spot's **deconvolved cell type fractions** (Stage 2's output) — not on gene expression. Runs once **per Visium sample**, scattered in parallel. Writes `{sample_id}.deconvoluted_clustered.h5ad` / `{sample_id}.deconvolution_clustering_metadata.csv.gz`.
 
 All samples (across all projects) are scattered flat and deconvoluted in parallel.
 
@@ -199,12 +199,14 @@ asap-dev-{cohort}-{source}-{modality_flavour}-{context}
         └── ${crn_release_version}
             ├── cohort_analysis
             │   ├── ${sampleA_id}.deconvoluted.h5ad
-            │   ├── ${sampleA_id}.deconvolution_metadata.csv
-            │   ├── ${sampleB_id}.deconvoluted.h5ad
-            │   ├── ${sampleB_id}.deconvolution_metadata.csv
+            │   ├── ${sampleA_id}.deconvolution_metadata.csv.gz
+            │   ├── ${sampleA_id}.deconvoluted_clustered.h5ad
+            │   ├── ${sampleA_id}.deconvolution_clustering_metadata.csv.gz
             │   ├── ...
             │   ├── ${sampleN_id}.deconvoluted.h5ad
-            │   ├── ${sampleN_id}.deconvolution_metadata.csv
+            │   ├── ${sampleN_id}.deconvolution_metadata.csv.gz
+            │   ├── ${sampleN_id}.deconvoluted_clustered.h5ad
+            │   ├── ${sampleN_id}.deconvolution_clustering_metadata.csv.gz
             │   └── MANIFEST.tsv
             ├── workflow_version  # plain text file
             └── workflow_metadata

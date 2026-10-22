@@ -14,10 +14,16 @@ Outputs
 -------
 {sample_id}.deconvoluted.h5ad
     Spatial AnnData with Cell2location results in .obsm and per-spot fraction in .obs.
-    Only written when 2 and/or 3 is in --run-stages.
+    Written when Stage 2 runs without Stage 3.
 {sample_id}.deconvolution_metadata.csv.gz
     Per-spot table: cell type fractions + obs columns for downstream reporting.
-    Only written when 2 and/or 3 is in --run-stages.
+    Written when Stage 2 runs without Stage 3.
+{sample_id}.deconvoluted_clustered.h5ad
+    Same as above, plus downstream Leiden clustering.
+    Written when Stage 3 runs.
+{sample_id}.deconvolution_clustering_metadata.csv.gz
+    Same as above, plus Leiden cluster assignments.
+    Written when Stage 3 runs.
 {ref_stem}_inf_aver.csv.gz
     Reference signatures (genes × cell types); only written when 1 is in --run-stages.
     {ref_stem} is the stem of the reference h5ad filename.
@@ -199,7 +205,7 @@ def _load_reference(ref_h5ad: str, cell_type_key: str, min_cells_per_type: int) 
 
 def _correct_sample_id(sample_id: str) -> str:
     """Return `sample_id` with the known ASAP typo PMBDS → PMDBS corrected.
-    This is a temporary fix while spatial-transcriptomics-wf is re-run to 
+    This is a temporary fix while spatial-transcriptomics-wf is re-run to
     fix underlying typos. """
     if sample_id.startswith("ASAP_PMBDS_"):
         return "ASAP_PMDBS_" + sample_id[len("ASAP_PMBDS_"):]
@@ -545,6 +551,7 @@ def deconvolute_visium(
     output_dir: str,
     promote: bool,
     run_stages: set,
+    write_h5ad: bool = True,
     keep_checkpoints: bool = False,
 ) -> None:
     """
@@ -593,6 +600,9 @@ def deconvolute_visium(
     run_stages : set of int
         Non-empty subset of {1, 2, 3} selecting which stages run; see module docstring for
         full semantics and examples.
+    write_h5ad : bool
+        If False, skip writing the `.h5ad` output and only write the metadata CSV.
+        Has no effect when neither Stage 2 nor Stage 3 is in `run_stages`.
     keep_checkpoints : bool
         If True, retain model checkpoint directories and intermediate posterior h5ad files.
 
@@ -611,15 +621,20 @@ def deconvolute_visium(
     )
     if write_sample_outputs:
         sample_id = _correct_sample_id(sample_id)
-        out_h5ad  = os.path.join(output_dir, f"{sample_id}.deconvoluted.h5ad")
-        out_csv   = os.path.join(output_dir, f"{sample_id}.deconvolution_metadata.csv.gz")
+        if run_stage3:
+            out_h5ad = os.path.join(output_dir, f"{sample_id}.deconvoluted_clustered.h5ad")
+            out_csv  = os.path.join(output_dir, f"{sample_id}.deconvolution_clustering_metadata.csv.gz")
+        else:
+            out_h5ad = os.path.join(output_dir, f"{sample_id}.deconvoluted.h5ad")
+            out_csv  = os.path.join(output_dir, f"{sample_id}.deconvolution_metadata.csv.gz")
 
     if not promote:
         print(f"[DRY-RUN] Would write:")
         if run_stage1:
             print(f"  {out_inf_aver}")
         if write_sample_outputs:
-            print(f"  {out_h5ad}")
+            if write_h5ad:
+                print(f"  {out_h5ad}")
             print(f"  {out_csv}")
         print("Re-run with --promote to write outputs.")
         return
@@ -687,8 +702,9 @@ def deconvolute_visium(
 
     # --- Write outputs ---
     t0 = time.time()
-    print(f"[INFO] Writing {out_h5ad} ...")
-    adata_spatial.write_h5ad(out_h5ad, compression="lzf")
+    if write_h5ad:
+        print(f"[INFO] Writing {out_h5ad} ...")
+        adata_spatial.write_h5ad(out_h5ad, compression="lzf")
     meta_cols = (
         [c for c in adata_spatial.obs.columns if c.startswith("frac_")]
         + [c for c in adata_spatial.obs.columns if c.startswith("cell2location_leiden_res_")]
@@ -812,7 +828,6 @@ def _validate_run_stages(
 
     return parsed_run_stages
 
-
 def main() -> None:
     args = _parse_args()
     run_stages = _validate_run_stages(
@@ -848,6 +863,7 @@ def main() -> None:
         output_dir         = args.output_dir,
         promote            = args.promote,
         run_stages         = run_stages,
+        write_h5ad         = args.write_h5ad,
         keep_checkpoints   = args.keep_checkpoints,
     )
 
@@ -869,6 +885,10 @@ def _parse_args() -> argparse.Namespace:
         help="Directory to write output files. Default: current directory")
     general.add_argument("--promote",                     action="store_true", default=False,
         help="Write output files. Default is dry-run (prints what would happen).")
+    general.add_argument("--write-h5ad",                  action=argparse.BooleanOptionalAction, default=True,
+        help="Write the per-sample `.h5ad` output in addition to the metadata CSV.\n"
+             "Use --no-write-h5ad to write only the metadata CSV. Has no effect in Stage-1-only mode.\n"
+             "Default: True")
 
     stage1 = parser.add_argument_group("Stage 1 — NB regression (reference signatures)")
     stage1.add_argument("--sc-rnaseq-reference-adata",    default=None,
