@@ -84,7 +84,7 @@ workflow integration {
 
 	parameter_meta {
 		# Inputs
-		sc_rnaseq_reference_adata: {help: "cohort_analysis.final_adata_object (.h5ad) — Harmony-integrated, cell-type-annotated AnnData used as the deconvolution reference; required when run_stages includes Stage 1"}
+		sc_rnaseq_reference_adata: {help: "scRNA-seq reference AnnData (.h5ad) used as the Cell2location deconvolution reference; required when run_stages includes Stage 1"}
 		sc_rnaseq_reference_cell2location_model: {help: "Pre-computed inf_aver.csv.gz from a previous run; required when run_stages includes Stage 2 without Stage 1"}
 		visium_samples: {help: "Flat list of Visium per-sample adatas (raw UMI counts, post-QC) to deconvolute independently"}
 		batch_key: {help: "Column in reference .obs used as batch covariate in the NB regression model"}
@@ -117,15 +117,9 @@ task cell2location_visium {
 
 	input {
 		String sample_id
-		File? spatial_adata # required when run_stages includes Stage 2
-
-		# sc_rnaseq_reference_adata trains Stage 1; sc_rnaseq_reference_cell2location_model loads
-		# pre-computed inf_aver.csv.gz signatures instead (takes precedence if both are defined).
+		File? spatial_adata
 		File? sc_rnaseq_reference_adata
 		File? sc_rnaseq_reference_cell2location_model
-
-		# Pre-computed Stage 2 <sample_id>.deconvoluted.h5ad; required when run_stages includes Stage 3 without Stage 2. 
-		# Clustering only — not threaded through integration/main workflows.
 		File? spatial_deconvolution_adata
 
 		String batch_key
@@ -137,8 +131,6 @@ task cell2location_visium {
 		Int n_comps
 		Int n_neighbors
 		Array[Float] leiden_res
-
-		# Comma-separated subset of {1,2,3}.  1 = NB regression (build reference signature), 2 = Cell2location spatial mapping of each sample, 3 = downstream Leiden clustering. run_stages parameter_meta for full semantics and examples.
 		String run_stages
 		Int preemptible
 
@@ -152,19 +144,38 @@ task cell2location_visium {
 	# Fix expected sample_id in outfile name.
 	String corrected_sample_id = sub(sample_id, "^ASAP_PMBDS_", "ASAP_PMDBS_")
 
+	# run_stages (e.g. "2,3"), always single comma-separated digits from {1,2,3}, never multi-digit.
+	Boolean include_stage1 = sub(run_stages, "1", "x") != run_stages
+	Boolean include_stage2 = sub(run_stages, "2", "x") != run_stages
+
+	# Gate 1 - scRNA-seq reference: either H5AD or precomputed inf_aver.
+	String gate_1_flag = if include_stage1 && defined(sc_rnaseq_reference_adata)
+		then "--sc-rnaseq-reference-adata " + select_first([sc_rnaseq_reference_adata])
+		else if !include_stage1 && include_stage2 && defined(sc_rnaseq_reference_cell2location_model)
+		then "--sc-rnaseq-reference-cell2location-model " + select_first([sc_rnaseq_reference_cell2location_model])
+		else ""
+
+	# Gate 2 - Raw spatial H5AD
+	String gate_2_flag = if include_stage2 && defined(spatial_adata)
+		then "--spatial-h5ad " + select_first([spatial_adata])
+		else ""
+
+	# Gate 3 - Deconvoluted spatial H5AD. Forwarded purely on defined() -- cell2location_deconv.py's
+	# _validate_run_stages() is the single source of truth for whether that's actually valid given
+	# run_stages, not this WDL.
+	String gate_3_flag = if defined(spatial_deconvolution_adata)
+		then "--spatial-deconvolution-adata " + select_first([spatial_deconvolution_adata])
+		else ""
+
 	command <<<
 		set -euo pipefail
 
 		/usr/bin/time -v python3 /opt/scripts/cell2location_deconv.py \
 			--run-stages ~{run_stages} \
+			~{gate_1_flag} \
+			~{gate_2_flag} \
+			~{gate_3_flag} \
 			--sample-id ~{sample_id} \
-			~{if defined(spatial_adata) then "--spatial-h5ad " + select_first([spatial_adata]) else ""} \
-			~{if defined(sc_rnaseq_reference_cell2location_model)
-			  then "--sc-rnaseq-reference-cell2location-model " + select_first([sc_rnaseq_reference_cell2location_model])
-			  else if defined(sc_rnaseq_reference_adata)
-			  then "--sc-rnaseq-reference-adata " + select_first([sc_rnaseq_reference_adata])
-			  else ""} \
-			~{if defined(spatial_deconvolution_adata) then "--spatial-deconvolution-adata " + select_first([spatial_deconvolution_adata]) else ""} \
 			--batch-key ~{batch_key} \
 			--cell-type-key ~{cell_type_key} \
 			--n-cells-per-spot ~{n_cells_per_spot} \

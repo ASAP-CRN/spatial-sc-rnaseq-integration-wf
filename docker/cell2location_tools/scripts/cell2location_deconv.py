@@ -702,83 +702,134 @@ def deconvolute_visium(
     print(f"[DONE] {sample_id}")
 
 
-def main() -> None:
-    args = _parse_args()
+def _validate_run_stages(
+    run_stages: str,
+    sc_rnaseq_reference_adata: str | None,
+    sc_rnaseq_reference_cell2location_model: str | None,
+    spatial_h5ad: str | None,
+    spatial_deconvolution_adata: str | None,
+    sample_id: str | None,
+) -> set[int]:
+    """
+    Parse `--run-stages` and validate every stage-dependent CLI argument
+    to ensure that all required and no extra inputs for each stage are correctly specified.
 
-    ref_adata = args.sc_rnaseq_reference_adata
-    ref_model = args.sc_rnaseq_reference_cell2location_model
-    deconv_adata = args.spatial_deconvolution_adata
+    Parameters
+    ----------
+    run_stages : str
+        Raw `--run-stages` value, e.g. "2,3".
+    sc_rnaseq_reference_adata : str or None
+        `--sc-rnaseq-reference-adata` value; H5AD to train Stage 1's reference signature.
+    sc_rnaseq_reference_cell2location_model : str or None
+        `--sc-rnaseq-reference-cell2location-model` value; pre-computed signature (inf_aver file)
+        for Stage 2 without Stage 1.
+    spatial_h5ad : str or None
+        `--spatial-h5ad` value; raw spatial input consumed by Stage 2.
+    spatial_deconvolution_adata : str or None
+        `--spatial-deconvolution-adata` value; pre-computed Stage 2 output for Stage 3
+        without Stage 2.
+    sample_id : str or None
+        `--sample-id` value; names per-sample output files for Stage 2 and/or 3.
 
+    Returns
+    -------
+    set[int]
+        Parsed run_stages, e.g. `{2, 3}`.
+
+    Raises
+    ------
+    SystemExit
+        If any stage-dependent validation check fails.
+    """
     try:
-        run_stages = {int(s) for s in args.run_stages.split(",")}
+        parsed_run_stages = {int(s) for s in run_stages.split(",")}
     except ValueError:
         raise SystemExit(
             f"error: --run-stages must be a comma-separated list of integers from {{1,2,3}}, "
-            f"got '{args.run_stages}'."
+            f"got '{run_stages}'."
         )
-    if not run_stages or not run_stages.issubset({1, 2, 3}):
+    if not parsed_run_stages or not parsed_run_stages.issubset({1, 2, 3}):
         raise SystemExit(
             f"error: --run-stages must be a non-empty comma-separated subset of {{1,2,3}}, "
-            f"got '{args.run_stages}'."
+            f"got '{run_stages}'."
         )
-    run_stage1 = 1 in run_stages
-    run_stage2 = 2 in run_stages
-    run_stage3 = 3 in run_stages
+    run_stage1 = 1 in parsed_run_stages
+    run_stage2 = 2 in parsed_run_stages
+    run_stage3 = 3 in parsed_run_stages
 
-    # Reference signatures: either Stage 1 trains them (ref_adata), or Stage 2 loads a
-    # pre-computed model (ref_model) when Stage 1 is not run.
+    # Gate 1 - scRNA-seq reference: either H5AD or precomputed inf_aver.
     if run_stage1:
-        if not ref_adata:
+        if not sc_rnaseq_reference_adata:
             raise SystemExit("error: --sc-rnaseq-reference-adata is required when Stage 1 is in --run-stages.")
-        if ref_model:
+        if sc_rnaseq_reference_cell2location_model:
             raise SystemExit("error: --sc-rnaseq-reference-cell2location-model is ignored when Stage 1 is in --run-stages.")
     else:
-        if ref_adata:
+        if sc_rnaseq_reference_adata:
             raise SystemExit("error: --sc-rnaseq-reference-adata is ignored when Stage 1 is not in --run-stages.")
         if run_stage2:
-            if not ref_model:
+            if not sc_rnaseq_reference_cell2location_model:
                 raise SystemExit(
                     "error: --sc-rnaseq-reference-cell2location-model is required when Stage 2 "
                     "is in --run-stages without Stage 1."
                 )
-        elif ref_model:
+        elif sc_rnaseq_reference_cell2location_model:
             raise SystemExit(
                 "error: --sc-rnaseq-reference-cell2location-model is only used when Stage 2 "
                 "is in --run-stages without Stage 1."
             )
 
-    # Raw spatial input: only consumed by Stage 2.
+    # Gate 2 - Raw spatial H5AD
     if run_stage2:
-        if not args.spatial_h5ad:
+        if not spatial_h5ad:
             raise SystemExit("error: --spatial-h5ad is required when Stage 2 is in --run-stages.")
-    elif args.spatial_h5ad:
+    elif spatial_h5ad:
         raise SystemExit("error: --spatial-h5ad is only used when Stage 2 is in --run-stages.")
 
-    # Pre-computed Stage 2 output: only consumed by Stage 3 when Stage 2 doesn't run.
-    if run_stage3 and not run_stage2:
-        if not deconv_adata:
+    # Gate 3 - Deconvoluted spatial H5AD
+    if run_stage2:
+        if spatial_deconvolution_adata:
+            raise SystemExit(
+                "error: --spatial-deconvolution-adata is only used when Stage 3 is in "
+                "--run-stages without Stage 2."
+            )
+    elif run_stage3:
+        if not spatial_deconvolution_adata:
             raise SystemExit(
                 "error: --spatial-deconvolution-adata is required when Stage 3 is in "
                 "--run-stages without Stage 2."
             )
-    elif deconv_adata:
+    elif spatial_deconvolution_adata:
         raise SystemExit(
             "error: --spatial-deconvolution-adata is only used when Stage 3 is in "
             "--run-stages without Stage 2."
         )
 
-    # sample_id names the per-sample output files, needed whenever Stage 2 and/or 3 runs.
-    if (run_stage2 or run_stage3) and not args.sample_id:
+    # sample_id
+    if (run_stage2 or run_stage3) and not sample_id:
         raise SystemExit("error: --sample-id is required when Stage 2 and/or 3 is in --run-stages.")
+
+    return parsed_run_stages
+
+
+def main() -> None:
+    args = _parse_args()
+    run_stages = _validate_run_stages(
+        run_stages=args.run_stages,
+        sc_rnaseq_reference_adata=args.sc_rnaseq_reference_adata,
+        sc_rnaseq_reference_cell2location_model=args.sc_rnaseq_reference_cell2location_model,
+        spatial_h5ad=args.spatial_h5ad,
+        spatial_deconvolution_adata=args.spatial_deconvolution_adata,
+        sample_id=args.sample_id,
+    )
 
     log_run_command(Path(args.output_dir) / f"{Path(sys.argv[0]).stem}.log")
 
     deconvolute_visium(
         sample_id          = args.sample_id,
         spatial_h5ad       = args.spatial_h5ad,
-        ref_h5ad           = ref_adata,
-        reference_model    = ref_model,
-        spatial_deconvolution_adata = deconv_adata,
+        ref_h5ad           = args.sc_rnaseq_reference_adata,
+        reference_model    = args.sc_rnaseq_reference_cell2location_model,
+        spatial_deconvolution_adata = args.spatial_deconvolution_adata,
         batch_key          = args.batch_key,
         cell_type_key      = args.cell_type_key,
         min_cells_per_type = args.min_cells_per_type,
@@ -793,9 +844,9 @@ def main() -> None:
         posterior_batch_size = args.posterior_batch_size,
         accelerator        = args.accelerator,
         output_dir         = args.output_dir,
-        promote              = args.promote,
-        run_stages          = run_stages,
-        keep_checkpoints     = args.keep_checkpoints,
+        promote            = args.promote,
+        run_stages         = run_stages,
+        keep_checkpoints   = args.keep_checkpoints,
     )
 
 
