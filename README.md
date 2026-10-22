@@ -38,14 +38,14 @@ Workflow name:
 
 The deconvolution workflow receives processed AnnData objects (`.h5ad`) from the upstream sibling workflows (i.e. does not re-run CellRanger, SpaceRanger, or cell type labelling).
 
-The scRNA-seq cohort adata is used as a **reference** for all spatial samples. The spatial side is handled **per sample**: each spatial sample adata carrying raw UMI counts is used before any batch correction, so it can be harmonized independently against the scRNA-seq reference. Samples from all projects are flattened and deconvoluted in parallel.
+The scRNA-seq cohort adata is used as a **reference** for all spatial samples. The spatial side is handled **per sample**: each spatial sample adata carrying raw UMI counts and all genes--not only HVGs is used before any batch correction, so it can be harmonized independently against the scRNA-seq reference. Samples from all projects are flattened and deconvoluted in parallel.
 
 Upstream inputs consumed per source:
 
 | Source workflow | Level | Output consumed |
 | :- | :- | :- |
 | sc-rnaseq-wf `cohort_analysis` (downsampled and/or supplemented with other sources) | cohort (reference) | `final_adata_object` |
-| spatial-transcriptomics-wf `spatial_visium preprocess` | per-sample, raw UMI counts | `qc_adata_objects` (one per sample) |
+| spatial-transcriptomics-wf `spatial_visium preprocess` | per-sample, raw UMI counts, all genes--not only HVGs| `qc_adata_objects` (one per sample) |
 
 The deconvolution sub-workflow ([workflows/integration/integration.wdl](workflows/integration/integration.wdl)) runs as 3 independent WDL tasks, gated by `run_stages`:
 
@@ -111,12 +111,12 @@ Groups per-sample Visium adatas from [spatial-transcriptomics-wf](https://github
 
 ### `SpatialVisiumSample`
 
-One Visium sample. Source: `spatial_visium preprocess.qc_adata_objects` from [spatial-transcriptomics-wf](https://github.com/ASAP-CRN/spatial-transcriptomics-wf). The adata carries post-QC raw UMI counts (i.e. from `workflow_execution/spatial_visium/preprocess/counts_to_adata/`).
+One Visium sample, with raw UMI counts and all genes--not only HVGs from [spatial-transcriptomics-wf](https://github.com/ASAP-CRN/spatial-transcriptomics-wf) (`*cleaned_unfiltered.h5ad`). Source: `spatial_visium preprocess.qc_adata_objects`. These can be obtained from the dataset buckets: `gs://asap-raw-<dataset_name>/workflow_execution/spatial_visium/preprocess/counts_to_adata/<version>`.
 
 | Type | Name | Description |
 | :- | :- | :- |
 | String | sample_id | Sample identifier; used to name output files. |
-| File | qc_adata_object | `spatial_visium preprocess.qc_adata_objects` (.h5ad) — per-sample, post-QC, raw UMI counts. |
+| File | qc_adata_object | `spatial_visium preprocess.qc_adata_objects` (`*cleaned_unfiltered.h5ad`) — per-sample, raw UMI counts, all genes--not only HVGs. |
 
 ## Generating the inputs JSON
 
@@ -130,8 +130,8 @@ The relevant GCS paths follow the staging bucket structure of the sibling workfl
 asap-dev-{cohort}-pmdbs-sn-rnaseq-{context}/pmdbs_sc_rnaseq/release/${crn_release_version}/cohort_analysis/
   ${cohort_id}.final.h5ad
 
-# spatial-transcriptomics-wf Visium outputs — per-sample post-QC adatas (raw UMI counts)
-asap-raw-{team-xxyy}-pmdbs-spatial-visium-{context}/spatial_visium/release/${crn_release_version}/preprocess/counts_to_adata/${sample_id}.qc.h5ad   # one file per sample
+# spatial-transcriptomics-wf Visium outputs from spatial-transcriptomics-wf (*cleaned_unfiltered.h5ad, with raw UMIs and all genes--not only HVGs).
+asap-raw-{dataset_name}/workflow_execution/spatial_visium/preprocess/counts_to_adata/${version}/${sample_id}.cleaned_unfiltered.h5ad   # one file per sample
 ```
 
 Example inputs JSON fragment:
@@ -147,11 +147,11 @@ Example inputs JSON fragment:
       "samples": [
         {
           "sample_id": "ASAP_PMDBS_000001_s001_rep1",
-          "qc_adata_object": "gs://asap-raw-team-xxyy-.../preprocess/counts_to_adata/ASAP_PMDBS_000001_s001_rep1.qc.h5ad"
+          "qc_adata_object": "gs://asap-raw-team-xxyy-.../workflow_execution/spatial_visium/preprocess/counts_to_adata/1.0.0/ASAP_PMDBS_000001_s001_rep1.cleaned_unfiltered.h5ad"
         },
         {
           "sample_id": "ASAP_PMDBS_000002_s001_rep1",
-          "qc_adata_object": "gs://asap-raw-team-xxyy-.../preprocess/counts_to_adata/ASAP_PMDBS_000002_s001_rep1.qc.h5ad"
+          "qc_adata_object": "gs://asap-raw-team-xxyy-.../workflow_execution/spatial_visium/preprocess/counts_to_adata/1.0.0/ASAP_PMDBS_000002_s001_rep1.cleaned_unfiltered.h5ad"
         }
       ],
       "raw_data_bucket": "gs://asap-raw-team-xxyy-..."

@@ -156,7 +156,7 @@ def _load_reference(ref_h5ad: str, cell_type_key: str, min_cells_per_type: int) 
     Parameters
     ----------
     ref_h5ad : str
-        All-gene reference h5ad (QC-filtered, raw counts); must contain `cell_type_key` in .obs.
+        Reference h5ad (raw UMI counts, all genes--not only HVGs); must contain `cell_type_key` in .obs.
     cell_type_key : str
         Column in .obs to use as the cell type label.
     min_cells_per_type : int
@@ -253,7 +253,7 @@ def _load_spatial(
     Parameters
     ----------
     spatial_h5ad : str
-        Path to per-sample Visium h5ad (raw UMI counts, post-QC).
+        Path to per-sample Visium h5ad (raw UMI counts, all genes--not only HVGs).
     sample_id : str
         Sample identifier; "ASAP_PMBDS_" is auto-corrected to "ASAP_PMDBS_".
 
@@ -395,7 +395,7 @@ def _run_cell2location_visium(
     Parameters
     ----------
     adata_spatial : anndata.AnnData
-        Per-sample Visium adata (spots × genes, raw UMI counts).
+        Per-sample Visium adata (spots × genes, raw UMI counts, all genes--not only HVGs).
     inf_aver : pandas.DataFrame
         Reference signatures from `_build_reference_signatures` (genes × cell types).
     n_cells_per_spot : int
@@ -872,7 +872,7 @@ def _parse_args() -> argparse.Namespace:
 
     stage1 = parser.add_argument_group("Stage 1 — NB regression (reference signatures)")
     stage1.add_argument("--sc-rnaseq-reference-adata",    default=None,
-        help="scRNA-seq reference h5ad (QC-filtered cells × all genes, raw counts).\n"
+        help="scRNA-seq reference h5ad (QC-filtered cells × all genes--not only HVGs, raw UMI counts).\n"
              "Trains Stage 1 NB regression and saves <ref_stem>_inf_aver.csv.gz to --output-dir.\n"
              "Required when Stage 1 is in --run-stages.")
     stage1.add_argument("--batch-key",                    default="batch_id",
@@ -890,7 +890,7 @@ def _parse_args() -> argparse.Namespace:
 
     stage2 = parser.add_argument_group("Stage 2 — Cell2location spatial mapping")
     stage2.add_argument("--spatial-h5ad",                 default=None,
-        help="Per-sample spatial h5ad (raw UMI counts, post-QC).\n"
+        help="Per-sample spatial h5ad (raw UMI counts, all genes--not only HVGs).\n"
              "Required when Stage 2 is in --run-stages.")
     stage2.add_argument("--sc-rnaseq-reference-cell2location-model", default=None,
         help="Path to a pre-computed scRNA-seq reference signatures file <ref_stem>_inf_aver.csv.gz produced by a previous run.\n"

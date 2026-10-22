@@ -1,14 +1,17 @@
 version 1.0
 
-# One Visium sample: per-sample post-QC adata (raw UMI counts) from spatial-transcriptomics-wf.
-# Source: spatial_visium preprocess.qc_adata_objects — one file per sample, post-QC.
+# One Visium sample: spatial-transcriptomics-wf Visium outputs from spatial-transcriptomics-wf 
+# (*cleaned_unfiltered.h5ad, with raw UMIs and all genes--not only HVGs).
+# These can be obtained from the dataset buckets:
+# gs://asap-raw-<dataset_name>/workflow_execution/spatial_visium/preprocess/counts_to_adata/<version>
+# Source: spatial_visium preprocess.qc_adata_objects
 struct SpatialVisiumSample {
 	String sample_id
 	File qc_adata_object
 }
 
-# Processed outputs from spatial-transcriptomics-wf (Visium) used as inputs to this workflow.
-# Each project provides a list of per-sample pre-QC adatas to integrate independently.
+# Processed Visium outputs from spatial-transcriptomics-wf used as inputs to this workflow.
+# Each project provides a list of per-sample *cleaned_unfiltered.h5ad files to deconvolute independently.
 struct SpatialVisiumProject {
 	String asap_team_id
 	String asap_dataset_id
