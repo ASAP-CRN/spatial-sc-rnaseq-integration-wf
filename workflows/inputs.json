@@ -1,9 +1,9 @@
 {
-  "spatial_sc_rnaseq_integration.sc_rnaseq_final_adata_object": "File — scRNA-seq reference AnnData used as the Cell2location deconvolution reference for all spatial samples",
+  "spatial_sc_rnaseq_integration.sc_rnaseq_reference_adata": "File — scRNA-seq reference AnnData used as the Cell2location deconvolution reference for all spatial samples",
 
   "spatial_sc_rnaseq_integration.spatial_visium_projects": "Array[SpatialVisiumProject] (optional, default = []) — each entry: { asap_team_id, asap_dataset_id, asap_dataset_doi_url, samples (Array[SpatialVisiumSample]), raw_data_bucket, staging_data_buckets }. SpatialVisiumSample: { sample_id (String), qc_adata_object (File) } — from spatial_visium preprocess.qc_adata_objects",
 
-  "spatial_sc_rnaseq_integration.sc_rnaseq_reference_cell2location_model": "File? (optional) — pre-computed inf_aver.csv.gz from a previous run. When provided, Stage 1 NB regression is skipped for all samples. When omitted, Stage 1 is trained from sc_rnaseq_final_adata_object.",
+  "spatial_sc_rnaseq_integration.sc_rnaseq_reference_cell2location_model": "File? (optional) — pre-computed inf_aver.csv.gz from a previous run. When provided, Stage 1 NB regression is skipped for all samples. When omitted, Stage 1 is trained from sc_rnaseq_reference_adata.",
 
   "spatial_sc_rnaseq_integration.batch_key": "String (optional, default = \"batch_id\")",
   "spatial_sc_rnaseq_integration.cell_type_key": "String (optional, default = \"cell_type_pred\")",

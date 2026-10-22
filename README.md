@@ -73,9 +73,9 @@ An input template file can be found at [workflows/inputs.json](workflows/inputs.
 
 | Type | Name | Description |
 | :- | :- | :- |
-| File | sc_rnaseq_final_adata_object | scRNA-seq reference AnnData; used to deconvolute all spatial samples. Typically a downsampled version of sc-rnaseq-wf `cohort_analysis`'s `final_adata_object`, either alone or supplemented with other sources, such as Kamath/Siletti. |
+| File | sc_rnaseq_reference_adata | scRNA-seq reference AnnData; used to deconvolute all spatial samples. Typically a downsampled version of sc-rnaseq-wf `cohort_analysis`'s `final_adata_object`, either alone or supplemented with other sources, such as Kamath/Siletti. |
 | Array[[`SpatialVisiumProject`](#spatialvisiumproject)]? | spatial_visium_projects | Processed project-level outputs from spatial-transcriptomics-wf (Visium) to deconvolute per sample. [[ ]] |
-| File? | sc_rnaseq_reference_cell2location_model | Pre-computed `<ref_stem>_inf_aver.csv.gz` from a previous run. When provided, Stage 1 NB regression is skipped for all samples. When omitted, Stage 1 is trained from `sc_rnaseq_final_adata_object`. |
+| File? | sc_rnaseq_reference_cell2location_model | Pre-computed `<ref_stem>_inf_aver.csv.gz` from a previous run. When provided, Stage 1 NB regression is skipped for all samples. When omitted, Stage 1 is trained from `sc_rnaseq_reference_adata`. |
 | String? | batch_key | Column in reference .obs used as batch covariate in the NB regression model. ['batch_id'] |
 | String? | cell_type_key | Column in reference .obs to use as the cell type label. ['cell_type_pred'] |
 | Int? | n_cells_per_spot | Cell2location N_cells_per_location prior; 8 for brain Visium. [8] |
@@ -119,12 +119,12 @@ One Visium sample. Source: `spatial_visium preprocess.qc_adata_objects` from [sp
 
 ## Generating the inputs JSON
 
-The inputs JSON may be generated manually. Because this workflow consumes processed outputs from upstream sibling workflows rather than raw FASTQ files, `sc_rnaseq_final_adata_object` and the `spatial_visium_projects` array must reference GCS paths to the `.h5ad` files already produced by those workflows.
+The inputs JSON may be generated manually. Because this workflow consumes processed outputs from upstream sibling workflows rather than raw FASTQ files, `sc_rnaseq_reference_adata` and the `spatial_visium_projects` array must reference GCS paths to the `.h5ad` files already produced by those workflows.
 
 The relevant GCS paths follow the staging bucket structure of the sibling workflows:
 
 ```
-# sc-rnaseq-wf outputs (downsampled cohort H5AD) -- `sc_rnaseq_final_adata_object` may instead
+# sc-rnaseq-wf outputs (downsampled cohort H5AD) -- `sc_rnaseq_reference_adata` may instead
 # point to a custom-built reference (e.g. supplemented with other sources, such as Kamath/Siletti).
 asap-dev-{cohort}-pmdbs-sn-rnaseq-{context}/pmdbs_sc_rnaseq/release/${crn_release_version}/cohort_analysis/
   ${cohort_id}.final.h5ad
@@ -137,7 +137,7 @@ Example inputs JSON fragment:
 
 ```json
 {
-  "spatial_sc_rnaseq_integration.sc_rnaseq_final_adata_object": "gs://asap-raw-cohort-.../cohort_analysis/asap-cohort.final.h5ad",
+  "spatial_sc_rnaseq_integration.sc_rnaseq_reference_adata": "gs://asap-raw-cohort-.../cohort_analysis/asap-cohort.final.h5ad",
   "spatial_sc_rnaseq_integration.spatial_visium_projects": [
     {
       "asap_team_id": "team-xxyy",

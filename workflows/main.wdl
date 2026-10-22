@@ -34,7 +34,7 @@ workflow spatial_sc_rnaseq_integration {
 
 	input {
 		# scRNA-seq reference H5AD file.
-		File sc_rnaseq_final_adata_object
+		File sc_rnaseq_reference_adata
 
 		# spatial-transcriptomics-wf post-QC spatial H5ADs.
 		Array[SpatialVisiumProject] spatial_visium_projects = []
@@ -79,7 +79,7 @@ workflow spatial_sc_rnaseq_integration {
 
 	call Integration.integration {
 		input:
-			sc_rnaseq_reference_adata = sc_rnaseq_final_adata_object,
+			sc_rnaseq_reference_adata = sc_rnaseq_reference_adata,
 			sc_rnaseq_reference_cell2location_model = sc_rnaseq_reference_cell2location_model,
 			visium_samples = visium_samples,
 			batch_key = batch_key,
@@ -109,7 +109,7 @@ workflow spatial_sc_rnaseq_integration {
 
 	parameter_meta {
 		# Inputs
-		sc_rnaseq_final_adata_object: {help: "scRNA-seq reference AnnData (.h5ad) used as the Cell2location deconvolution reference for all spatial samples"}
+		sc_rnaseq_reference_adata: {help: "scRNA-seq reference AnnData (.h5ad) used as the Cell2location deconvolution reference for all spatial samples"}
 		spatial_visium_projects: {help: "Processed spatial outputs (from spatial-transcriptomics-wf); samples are flattened across projects and deconvoluted independently. []"}
 		sc_rnaseq_reference_cell2location_model: {help: "Pre-computed inf_aver.csv.gz from a previous run; required when run_stages excludes Stage 1 (e.g. '2,3')"}
 		batch_key: {help: "Column in reference .obs used as batch covariate in the NB regression model. ['batch_id']"}
