@@ -47,12 +47,11 @@ Upstream inputs consumed per source:
 | sc-rnaseq-wf `cohort_analysis` (downsampled and/or supplemented with other sources) | cohort (reference) | `final_adata_object` |
 | spatial-transcriptomics-wf `spatial_visium preprocess` | per-sample, raw UMI counts | `qc_adata_objects` (one per sample) |
 
-The deconvolution sub-workflow ([workflows/integration/integration.wdl](workflows/integration/integration.wdl)) runs as 2 independent WDL tasks, gated by `run_stages`:
+The deconvolution sub-workflow ([workflows/integration/integration.wdl](workflows/integration/integration.wdl)) runs as 3 independent WDL tasks, gated by `run_stages`:
 
-1. **Stage 1 — NB regression** (skipped if `sc_rnaseq_reference_cell2location_model` is provided): train a Negative Binomial regression model on the scRNA-seq reference to estimate per-cell-type gene expression signatures (`inf_aver`). Runs **once to be re-used for all spatial samples**.
+1. **Stage 1 — NB regression** (skipped if `sc_rnaseq_reference_cell2location_model` is provided): train a Negative Binomial regression model on the scRNA-seq reference to estimate per-cell-type gene expression signatures (`inf_aver`). Runs **once for all spatial samples**.
 2. **Stage 2 — Spatial mapping**: run Cell2location to map cell type abundances onto Visium spots. Runs once **per Visium sample**, scattered in parallel.
-
-A third stage (PCA → neighbours → UMAP → Leiden clustering on deconvoluted cell type abundance vectors) exists in `cell2location_deconv.py` but is intentionally **not exposed through this WDL** because ASAP spatial samples are clustered upstream by `spatial-transcriptomics-wf`. Stage 3 remains available via the script's own CLI for reference-building and analysis of external samples outside this workflow.
+3. **Stage 3 — Clustering**: PCA → neighbours → UMAP → Leiden clustering on each spot's **deconvolved cell type fractions** (Stage 2's output) — not on gene expression. Runs once **per Visium sample**, scattered in parallel.
 
 All samples (across all projects) are scattered flat and deconvoluted in parallel.
 
@@ -83,7 +82,10 @@ An input template file can be found at [workflows/inputs.json](workflows/inputs.
 | Int? | detection_alpha | Cell2location detection rate prior (20–200); higher values assume low technical variability. [100] |
 | Int? | max_epochs_ref | NB regression (Stage 1) training epochs. [250] |
 | Int? | max_epochs_spatial | Cell2location spatial mapping (Stage 2) training epochs. [30000] |
-| String? | run_stages | Comma-separated subset of `{1,2}` — which stages to run. `"1"` builds the `inf_aver.csv.gz` reference; `"2"` loads the `inf_aver.csv.gz` reference and deconvolutes spatial samples. ['1,2'] |
+| Int? | n_comps | PCA components for clustering on deconvolved cell type fractions (Stage 3). [30] |
+| Int? | n_neighbors | Neighbourhood size for clustering on deconvolved cell type fractions (Stage 3). [15] |
+| Array[Float]? | leiden_res | Leiden resolutions for clustering on deconvolved cell type fractions (Stage 3); one clustering per resolution. [0.2, 0.5, 1.0] |
+| String? | run_stages | Comma-separated subset of `{1,2,3}` — which stages to run. `"1"` builds the `inf_aver.csv.gz` reference; `"2"` loads it and deconvolutes spatial samples; `"3"` Leiden-clusters each sample's deconvolved cell type fractions. ['1,2,3'] |
 | String | cohort_raw_data_bucket_spatial_sc_rnaseq | Bucket to upload cohort deconvolution intermediate files to. |
 | String | container_registry | Container registry where workflow Docker images are hosted. |
 | String? | zones | GCP zones where compute will take place. ['us-central1-c us-central1-f'] |

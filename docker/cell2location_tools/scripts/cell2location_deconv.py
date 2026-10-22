@@ -500,13 +500,13 @@ def _downstream_analysis(
     sc.tl.pca(adata_tmp, n_comps=min(n_comps, fractions.shape[1] - 1))
     sc.pp.neighbors(adata_tmp, n_neighbors=n_neighbors, n_pcs=adata_tmp.obsm["X_pca"].shape[1])
     sc.tl.umap(adata_tmp)
-    adata_spatial.obsm["X_pca_fractions"]  = adata_tmp.obsm["X_pca"]
-    adata_spatial.obsm["X_umap_fractions"] = adata_tmp.obsm["X_umap"]
-    adata_spatial.obsp["connectivities"]   = adata_tmp.obsp["connectivities"]
-    adata_spatial.obsp["distances"]        = adata_tmp.obsp["distances"]
-    adata_spatial.uns["neighbors"]         = adata_tmp.uns["neighbors"]
+    adata_spatial.obsm["cell2location_X_pca_fractions"]  = adata_tmp.obsm["X_pca"]
+    adata_spatial.obsm["cell2location_X_umap_fractions"] = adata_tmp.obsm["X_umap"]
+    adata_spatial.obsp["cell2location_connectivities"]   = adata_tmp.obsp["connectivities"]
+    adata_spatial.obsp["cell2location_distances"]        = adata_tmp.obsp["distances"]
+    adata_spatial.uns["cell2location_neighbors"]         = adata_tmp.uns["neighbors"]
     for res in leiden_res:
-        key = f"leiden_res_{str(res).replace('.', '_')}"
+        key = f"cell2location_leiden_res_{str(res).replace('.', '_')}"
         sc.tl.leiden(adata_tmp, resolution=res, key_added=key,
                      flavor="igraph", n_iterations=2, directed=False)
         adata_spatial.obs[key] = adata_tmp.obs[key].values
@@ -689,8 +689,8 @@ def deconvolute_visium(
     adata_spatial.write_h5ad(out_h5ad, compression="lzf")
     meta_cols = (
         [c for c in adata_spatial.obs.columns if c.startswith("frac_")]
-        + [c for c in adata_spatial.obs.columns if c.startswith("leiden_")]
-        + [c for c in adata_spatial.obs.columns if not c.startswith("frac_") and not c.startswith("leiden_")]
+        + [c for c in adata_spatial.obs.columns if c.startswith("cell2location_leiden_res_")]
+        + [c for c in adata_spatial.obs.columns if not c.startswith("frac_") and not c.startswith("cell2location_leiden_res_")]
     )
     adata_spatial.obs[meta_cols].to_csv(out_csv, compression="gzip")
     print(f"[INFO] Writing {out_csv} ...")

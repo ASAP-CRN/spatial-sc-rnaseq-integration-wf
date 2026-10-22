@@ -12,11 +12,8 @@ version 1.0
 # spatial-transcriptomics-wf.
 #
 # Stage 1: Build the scRNA-seq reference inf_aver file from the H5AD for Cell2location (once per cohort)
-# Stage 2: Deconvolute spatial samples using the reference inf_aver file with Cell2location (per sample)
-#
-# Downstream Leiden clustering (Stage 3 in cell2location_deconv.py) is intentionally not exposed
-# here -- real ASAP spatial samples are clustered upstream by spatial-transcriptomics-wf; Stage 3
-# stays available via the script's own CLI for reference-building/external-sample analysis.
+# Stage 2: Deconvolute each spatial sample using the reference inf_aver file with Cell2location (per sample)
+# Stage 3: Leiden-cluster each spatial sample on its deconvolved cell type fractions (not on gene expression).
 #
 # Deconvolution method: Cell2location (Bayesian hierarchical model, GPU-accelerated).
 
@@ -53,8 +50,13 @@ workflow spatial_sc_rnaseq_integration {
 		Int max_epochs_ref = 250
 		Int max_epochs_spatial = 30000
 
+		# Clustering parameters
+		Int n_comps = 30
+		Int n_neighbors = 15
+		Array[Float] leiden_res = [0.2, 0.5, 1.0]
+
 		# Stages to run; see Integration.integration
-		String run_stages = "1,2"
+		String run_stages = "1,2,3"
 		Int preemptible = 3
 
 		String cohort_raw_data_bucket_spatial_sc_rnaseq
@@ -85,6 +87,9 @@ workflow spatial_sc_rnaseq_integration {
 			detection_alpha = detection_alpha,
 			max_epochs_ref = max_epochs_ref,
 			max_epochs_spatial = max_epochs_spatial,
+			n_comps = n_comps,
+			n_neighbors = n_neighbors,
+			leiden_res = leiden_res,
 			run_stages = run_stages,
 			preemptible = preemptible,
 			raw_data_path = cohort_raw_data_bucket_spatial_sc_rnaseq,
@@ -112,15 +117,18 @@ workflow spatial_sc_rnaseq_integration {
 		detection_alpha: {help: "Cell2location detection rate prior (20–200); higher values assume low technical variability. [100]"}
 		max_epochs_ref: {help: "NB regression (Stage 1) training epochs. [250]"}
 		max_epochs_spatial: {help: "Cell2location spatial mapping (Stage 2) training epochs. [30000]"}
-		run_stages: {help: "Comma-separated subset of {1,2} — which stages to run: 1 = build Cell2location inf_aver.csv.gz deconvolution reference, 2 = Cell2location spatial mapping (per sample). ['1,2']"}
-		preemptible: {help: "Number of preemptible-VM attempts before Cromwell falls back to on-demand; 0 forces on-demand from the first attempt; use 0 for long production runs where a preemption-triggered restart-from-scratch would be too costly. [3]"}
+		n_comps: {help: "PCA components for clustering on deconvolved cell type fractions (Stage 3). [30]"}
+		n_neighbors: {help: "Neighbourhood size for clustering on deconvolved cell type fractions (Stage 3). [15]"}
+		leiden_res: {help: "Leiden resolutions for clustering on deconvolved cell type fractions (Stage 3); one clustering per resolution. [0.2, 0.5, 1.0]"}
+		run_stages: {help: "Comma-separated subset of {1,2,3} — which stages to run: 1 = build Cell2location inf_aver.csv.gz deconvolution reference, 2 = Cell2location spatial mapping (per sample), 3 = Leiden clustering on deconvolved cell type fractions. ['1,2,3']"}
+		preemptible: {help: "Number of preemptible-VM attempts before Cromwell falls back to on-demand; 0 forces on-demand from the first attempt. [3]"}
 		cohort_raw_data_bucket_spatial_sc_rnaseq: {help: "GCS path to raw data bucket; intermediate outputs are stored here."}
 		container_registry: {help: "Container registry hosting workflow Docker images."}
 		zones: {help: "GCP zones where compute will run. ['us-central1-c us-central1-f']"}
 
 		# Outputs
-		visium_deconvoluted_adata_objects: {help: "Cell2location deconvoluted AnnData objects (.h5ad), one per Visium sample; null for a sample when run_stages excludes Stage 2."}
-		visium_deconvolution_metadata_csvs: {help: "Per-spot deconvolution metadata CSV (cell type fractions), one per Visium sample; null for a sample when run_stages excludes Stage 2."}
+		visium_deconvoluted_adata_objects: {help: "Cell2location deconvoluted AnnData objects (.h5ad), one per Visium sample. Includes Leiden cluster columns when run_stages includes Stage 3."}
+		visium_deconvolution_metadata_csvs: {help: "Per-spot deconvolution metadata CSV cell type fractions. Includes Leiden cluster columns when run_stages includes Stage 3."}
 		sc_rnaseq_reference_inf_aver_csv_gz: {help: "Cell2location reference signature (<ref_stem>_inf_aver.csv.gz), built once for the whole cohort; null when run_stages excludes Stage 1."}
 	}
 }

@@ -34,6 +34,11 @@ workflow integration {
 		Int max_epochs_ref
 		Int max_epochs_spatial
 
+		# Clustering parameters (on deconvolved cell type fractions, not gene expression)
+		Int n_comps
+		Int n_neighbors
+		Array[Float] leiden_res
+
 		# Stages to run; see parameter_meta below
 		String run_stages
 		Int preemptible
@@ -44,9 +49,10 @@ workflow integration {
 		String zones
 	}
 
-	# run_stages (e.g. "2"), always single comma-separated digits from {1,2}, never multi-digit.
+	# run_stages (e.g. "2,3"), always single comma-separated digits from {1,2,3}, never multi-digit.
 	Boolean include_stage1 = sub(run_stages, "1", "x") != run_stages
 	Boolean include_stage2 = sub(run_stages, "2", "x") != run_stages
+	Boolean include_stage3 = sub(run_stages, "3", "x") != run_stages
 
 	# Stage 1: reference signature, built once to deconvolute all samples -- not per sample.
 	if (include_stage1) {
@@ -87,12 +93,34 @@ workflow integration {
 					zones = zones
 			}
 		}
+
+		if (include_stage3) {
+			call cell2location_cluster_visium {
+				input:
+					sample_id = sample.sample_id,
+					spatial_deconvolution_adata = select_first([cell2location_deconvolute_visium.deconvoluted_adata_object]),
+					n_comps = n_comps,
+					n_neighbors = n_neighbors,
+					leiden_res = leiden_res,
+					preemptible = preemptible,
+					raw_data_path = raw_data_path,
+					billing_project = billing_project,
+					container_registry = container_registry,
+					zones = zones
+			}
+		}
 	}
 
 	output {
-		# Flat over all samples; null when run_stages excludes Stage 2.
-		Array[File?] visium_deconvoluted_adata_objects = cell2location_deconvolute_visium.deconvoluted_adata_object
-		Array[File?] visium_deconvolution_metadata_csvs = cell2location_deconvolute_visium.deconvolution_metadata_csv
+		# Flat over all samples; null for a sample when run_stages excludes Stage 2. Whichever of
+		# Stage 2/3 ran last for a given sample is the final object -- Stage 3 rewrites Stage 2's
+		# files with Leiden columns added, it doesn't produce separate ones.
+		Array[File?] visium_deconvoluted_adata_objects = if include_stage3
+			then cell2location_cluster_visium.deconvoluted_adata_object
+			else cell2location_deconvolute_visium.deconvoluted_adata_object
+		Array[File?] visium_deconvolution_metadata_csvs = if include_stage3
+			then cell2location_cluster_visium.deconvolution_metadata_csv
+			else cell2location_deconvolute_visium.deconvolution_metadata_csv
 		# Built once; null when run_stages excludes Stage 1.
 		File? sc_rnaseq_reference_inf_aver_csv_gz = cell2location_build_reference.inf_aver_csv_gz
 	}
@@ -108,7 +136,10 @@ workflow integration {
 		detection_alpha: {help: "Cell2location detection rate prior (20–200); higher values assume low technical variability."}
 		max_epochs_ref: {help: "NB regression (Stage 1) training epochs."}
 		max_epochs_spatial: {help: "Cell2location spatial mapping (Stage 2) training epochs."}
-		run_stages: {help: "Comma-separated subset of {1,2} — which stages to run: 1 = build Cell2location inf_aver.csv.gz deconvolution reference, 2 = Cell2location spatial mapping (per sample)."}
+		n_comps: {help: "PCA components for clustering on deconvolved cell type fractions (Stage 3)."}
+		n_neighbors: {help: "Neighbourhood size for clustering on deconvolved cell type fractions (Stage 3)."}
+		leiden_res: {help: "Leiden resolutions for clustering on deconvolved cell type fractions (Stage 3); one clustering per resolution."}
+		run_stages: {help: "Comma-separated subset of {1,2,3} — which stages to run: 1 = build Cell2location inf_aver.csv.gz deconvolution reference, 2 = Cell2location spatial mapping (per sample), 3 = Leiden clustering on deconvolved cell type fractions."}
 		preemptible: {help: "Number of preemptible-VM attempts before Cromwell falls back to on-demand; 0 forces on-demand from the first attempt."}
 		raw_data_path: {help: "GCS path to raw data bucket; intermediate outputs are stored here."}
 		billing_project: {help: "GCP billing project for requester-pays bucket access."}
@@ -116,8 +147,8 @@ workflow integration {
 		zones: {help: "GCP zones where compute will run."}
 
 		# Outputs
-		visium_deconvoluted_adata_objects: {help: "Cell2location deconvoluted AnnData objects (.h5ad), one per Visium sample; null for a sample when run_stages excludes Stage 2."}
-		visium_deconvolution_metadata_csvs: {help: "Per-spot deconvolution metadata CSV (cell type fractions), one per Visium sample; null for a sample when run_stages excludes Stage 2."}
+		visium_deconvoluted_adata_objects: {help: "Cell2location deconvoluted AnnData objects (.h5ad), one per Visium sample. Includes Leiden cluster columns when run_stages includes Stage 3."}
+		visium_deconvolution_metadata_csvs: {help: "Per-spot deconvolution metadata CSV cell type fractions. Includes Leiden cluster columns when run_stages includes Stage 3."}
 		sc_rnaseq_reference_inf_aver_csv_gz: {help: "Cell2location reference signature (<ref_stem>_inf_aver.csv.gz), built once for the whole cohort; null when run_stages excludes Stage 1."}
 	}
 }
@@ -170,6 +201,59 @@ task cell2location_build_reference {
 		bootDiskSizeGb: 40
 		gpuType: "nvidia-tesla-t4"
 		gpuCount: 1
+		zones: zones
+	}
+}
+
+task cell2location_cluster_visium {
+	meta {
+		description: "Leiden-cluster one Visium sample's Cell2location deconvoluted cell type fractions"
+	}
+
+	input {
+		String sample_id
+		File spatial_deconvolution_adata
+
+		Int n_comps
+		Int n_neighbors
+		Array[Float] leiden_res
+		Int preemptible
+
+		String raw_data_path #!UnusedDeclaration -- reserved for planned output-upload wiring, not yet implemented
+		String billing_project #!UnusedDeclaration -- reserved for planned output-upload wiring, not yet implemented
+		String container_registry
+		String zones
+	}
+
+	Int disk_size = ceil(size(spatial_deconvolution_adata, "GB") + 20)
+	# Fix expected sample_id in outfile name. This is a temporary fix while spatial-transcriptomics-wf is re-run to fix underlying typos.
+	String corrected_sample_id = sub(sample_id, "^ASAP_PMBDS_", "ASAP_PMDBS_")
+
+	command <<<
+		set -euo pipefail
+
+		/usr/bin/time -v python3 /opt/scripts/cell2location_deconv.py \
+			--run-stages 3 \
+			--spatial-deconvolution-adata ~{spatial_deconvolution_adata} \
+			--sample-id ~{sample_id} \
+			--n-comps ~{n_comps} \
+			--n-neighbors ~{n_neighbors} \
+			--leiden-res ~{sep=" " leiden_res} \
+			--output-dir . \
+			--promote
+	>>>
+
+	output {
+		File deconvoluted_adata_object = "~{corrected_sample_id}.deconvoluted.h5ad"
+		File deconvolution_metadata_csv = "~{corrected_sample_id}.deconvolution_metadata.csv.gz"
+	}
+
+	runtime {
+		docker: "~{container_registry}/cell2location_tools:1.0.0"
+		cpu: 4
+		memory: "16 GB"
+		disks: "local-disk " + disk_size + " SSD"
+		preemptible: preemptible
 		zones: zones
 	}
 }
