@@ -198,7 +198,9 @@ def _load_reference(ref_h5ad: str, cell_type_key: str, min_cells_per_type: int) 
 
 
 def _correct_sample_id(sample_id: str) -> str:
-    """Return `sample_id` with the known ASAP typo PMBDS → PMDBS corrected."""
+    """Return `sample_id` with the known ASAP typo PMBDS → PMDBS corrected.
+    This is a temporary fix while spatial-transcriptomics-wf is re-run to 
+    fix underlying typos. """
     if sample_id.startswith("ASAP_PMBDS_"):
         return "ASAP_PMDBS_" + sample_id[len("ASAP_PMBDS_"):]
     return sample_id
