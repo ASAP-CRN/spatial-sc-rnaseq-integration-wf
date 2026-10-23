@@ -37,7 +37,7 @@ workflow spatial_sc_rnaseq_integration {
 		File? sc_rnaseq_reference_adata
 
 		# spatial-transcriptomics-wf post-QC spatial H5ADs
-		Array[SpatialVisiumProject] spatial_visium_projects = []
+		Array[SpatialVisiumProject] spatial_visium_projects = [] #!UnverifiedStruct -- empty-array default can't be statically verified against the struct type; known miniwdl limitation
 
 		# Pre-computed inf_aver.csv.gz deconvolution reference
 		File? sc_rnaseq_reference_cell2location_model
