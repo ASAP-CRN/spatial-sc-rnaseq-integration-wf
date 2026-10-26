@@ -222,7 +222,7 @@
       "run_timestamp": "2025-07-15T00-00-00Z",
       "cohort_workflow_name": "cell2location",
       "cohort_workflow_version": "1.0.0",
-      "sc_rnaseq_input_path": "gs://asap-wdl-ci/workflow_execution/spatial-sc-rnaseq-integration-wf/reference_building/reference_h5ad",
+      "sc_rnaseq_input_path": "gs://asap-wdl-ci/workflow_execution/spatial_sc_rnaseq_integration/reference_building/reference_h5ad",
       "spatial_visium_preprocess_path": "gs://asap-wdl-ci/workflow_execution/spatial_visium/preprocess/counts_to_adata/1.0.0",
       "batch_key": "batch_id",
       "cell_type_key": "cell_type_pred",

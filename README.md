@@ -92,7 +92,7 @@ An input template file can be found at [workflows/inputs.json](workflows/inputs.
 
 #### Note
 For script testing, these inputs can be used:
-- sc-RNAseq reference: `gs://asap-wdl-ci/workflow_execution/spatial-sc-rnaseq-integration-wf/reference_building/reference_h5ad/deconvolution_reference_30k.h5ad`
+- sc-RNAseq reference: `gs://asap-wdl-ci/workflow_execution/spatial_sc_rnaseq_integration/reference_building/reference_h5ad/deconvolution_reference_30k.h5ad`
 - Spatial: `gs://asap-wdl-ci/workflow_execution/spatial_visium/preprocess/counts_to_adata/1.0.0/ASAP_PMBDS_000003_s007_Rep1.cleaned_unfiltered.h5ad`
 
 ## Structures
