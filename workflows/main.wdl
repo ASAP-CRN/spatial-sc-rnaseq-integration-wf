@@ -102,11 +102,16 @@ workflow spatial_sc_rnaseq_integration {
 		# Flat over all samples; null when run_stages excludes Stage 2.
 		Array[File?] visium_deconvoluted_adata_objects = integration.visium_deconvoluted_adata_objects
 		Array[File?] visium_deconvolution_metadata_csvs = integration.visium_deconvolution_metadata_csvs
+		Array[File?] visium_deconvolution_training_history_pngs = integration.visium_deconvolution_training_history_pngs
+		Array[File?] visium_deconvolution_timing_tsvs = integration.visium_deconvolution_timing_tsvs
 		# Flat over all samples; null when run_stages excludes Stage 3.
 		Array[File?] visium_deconvoluted_clustered_adata_objects = integration.visium_deconvoluted_clustered_adata_objects
 		Array[File?] visium_deconvolution_clustering_metadata_csvs = integration.visium_deconvolution_clustering_metadata_csvs
+		Array[File?] visium_deconvolution_clustering_timing_tsvs = integration.visium_deconvolution_clustering_timing_tsvs
 		# Built once; null when run_stages excludes Stage 1.
 		File? sc_rnaseq_reference_inf_aver_csv_gz = integration.sc_rnaseq_reference_inf_aver_csv_gz
+		File? sc_rnaseq_reference_training_history_png = integration.sc_rnaseq_reference_training_history_png
+		File? sc_rnaseq_reference_build_timing_tsv = integration.sc_rnaseq_reference_build_timing_tsv
 	}
 
 	parameter_meta {
@@ -132,8 +137,13 @@ workflow spatial_sc_rnaseq_integration {
 		# Outputs
 		visium_deconvoluted_adata_objects: {help: "Cell2location deconvoluted AnnData objects (.h5ad), one per Visium sample; null for a sample when run_stages excludes Stage 2."}
 		visium_deconvolution_metadata_csvs: {help: "Per-spot deconvolution metadata CSV cell type fractions; null for a sample when run_stages excludes Stage 2."}
+		visium_deconvolution_training_history_pngs: {help: "Cell2location spatial mapping (Stage 2) ELBO training-loss plot, one per Visium sample; null for a sample when run_stages excludes Stage 2."}
+		visium_deconvolution_timing_tsvs: {help: "Per-step timing breakdown (Stage 2 run), one per Visium sample; null for a sample when run_stages excludes Stage 2."}
 		visium_deconvoluted_clustered_adata_objects: {help: "Cell2location deconvoluted AnnData objects (.h5ad) with Leiden cluster columns added, one per Visium sample; null for a sample when run_stages excludes Stage 3."}
 		visium_deconvolution_clustering_metadata_csvs: {help: "Per-spot deconvolution metadata CSV cell type fractions with Leiden cluster columns added; null for a sample when run_stages excludes Stage 3."}
+		visium_deconvolution_clustering_timing_tsvs: {help: "Per-step timing breakdown (Stage 3 run), one per Visium sample; null for a sample when run_stages excludes Stage 3."}
 		sc_rnaseq_reference_inf_aver_csv_gz: {help: "Cell2location reference signature (<ref_stem>_inf_aver.csv.gz), built once for the whole cohort; null when run_stages excludes Stage 1."}
+		sc_rnaseq_reference_training_history_png: {help: "NB regression (Stage 1) ELBO training-loss plot, built once for the whole cohort; null when run_stages excludes Stage 1."}
+		sc_rnaseq_reference_build_timing_tsv: {help: "Per-step timing breakdown (Stage 1 run), built once for the whole cohort; null when run_stages excludes Stage 1."}
 	}
 }
