@@ -25,3 +25,9 @@ KAMATH_DA_MARKER_SYMBOLS = (
     # Subtype-defining markers (e.g. SOX6_AGTR1, CALB1_GEM)
     "AGTR1", "DDT", "GFRA2", "PART1", "CALCR", "CRYM", "CCDC68", "GEM", "PPP1R17", "RBP4", "TRHR",
 )
+
+# Kamath et al. (2022) DA subtype labels
+KAMATH_DA_SUBTYPE_LABELS = frozenset({
+    "SOX6_AGTR1", "SOX6_DDT", "SOX6_GFRA2", "SOX6_PART1",
+    "CALB1_CALCR", "CALB1_CRYM_CCDC68", "CALB1_GEM", "CALB1_PPP1R17", "CALB1_RBP4", "CALB1_TRHR",
+})

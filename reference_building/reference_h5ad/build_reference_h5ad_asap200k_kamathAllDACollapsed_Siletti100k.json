@@ -1,0 +1,21 @@
+{
+  "integrated_file": "reference_building/da_neurons_identification_analysis/reference_data/asap_cohort/pmdbs_sc_rnaseq/cohort_analysis/5.0.0/2026-10-19T14-59-48Z/asap-cohort.final_metadata.csv.gz",
+  "source_preqc_h5ads": {
+    "asap_cohort": "reference_building/da_neurons_identification_analysis/reference_data/asap_cohort/pmdbs_sc_rnaseq/cohort_analysis/5.0.0/2026-10-19T14-59-48Z/asap-cohort.merged_cleaned_unfiltered.h5ad",
+    "kamath": "reference_building/da_neurons_identification_analysis/reference_data/kamath/intermediate/kamath_merged_da_all_non_da_13000_preQC.h5ad",
+    "siletti": "reference_building/da_neurons_identification_analysis/reference_data/siletti/intermediate/midbrain_da_neurons15000_cells47643_preQC.h5ad"
+  },
+  "n_cells": {
+    "asap_cohort": 200000,
+    "kamath": "all_integrated",
+    "siletti": 100000
+  },
+  "source_col": "source",
+  "cell_type_key": "C_scANVI",
+  "collapse_kamath_da_subtypes": true,
+  "obs_cols": ["source", "batch", "cell_type", "C_scANVI"],
+  "rename_obs_cols": {"cell_type": "cell_type_MMC"},
+  "output_h5ad": "reference_building/reference_h5ad/deconvolution_reference_asap200k_kamathAllDACollapsed_Siletti100k.h5ad",
+  "filter_genes": "cell2location_u_da",
+  "minimum_cells_per_type": 15
+}
