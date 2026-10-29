@@ -1,0 +1,21 @@
+[2026-10-29 15:00:16] reference_building/benchmark/reference_data/ma/scripts/map_ASAP_barcodes_v3_vs_v5_releases.py --outdir reference_building/benchmark/asap_barcode_mapping_v3_vs_v5/all_v3.1.0_barcodes_in_final --v3-seed reference_building/da_neurons_identification_analysis/reference_data/asap_cohort/pmdbs_sc_rnaseq/cohort_analysis/3.1.0/2025-12-01T22-36-30Z/asap-cohort.final_metadata.csv.gz
+[INFO] Loading v3.1.0 barcodes from reference_building/da_neurons_identification_analysis/reference_data/asap_cohort/pmdbs_sc_rnaseq/cohort_analysis/3.1.0/2025-12-01T22-36-30Z/asap-cohort.final_metadata.csv.gz
+  3,578,056 v3.1.0 barcode(s) parsed
+[INFO] Loading v5.0.0 barcodes from reference_building/da_neurons_identification_analysis/reference_data/asap_cohort/pmdbs_sc_rnaseq/cohort_analysis/5.0.0/2026-10-19T14-59-48Z/asap-cohort.final_metadata.csv.gz
+  2,827,846 ASAP v5.0.0 barcode(s) parsed (121,110 non-ASAP spike-in barcode(s) excluded)
+[INFO] Building mapping ...
+[INFO] Loading v5.0.0 pre-QC-filter barcodes from reference_building/da_neurons_identification_analysis/reference_data/asap_cohort/pmdbs_sc_rnaseq/cohort_analysis/5.0.0/2026-10-19T14-59-48Z/asap-cohort.merged_cleaned_unfiltered.h5ad
+  7,574,597 ASAP v5.0.0 pre-QC-filter barcode(s) parsed
+[INFO] Reclassifying not_mappable barcodes found in the pre-QC-filter H5AD ...
+[INFO] Reclassifying not_mappable barcodes whose sample is absent from v5.0.0 ...
+[INFO] Loading v3.1.0 final-metadata barcodes from reference_building/da_neurons_identification_analysis/reference_data/asap_cohort/pmdbs_sc_rnaseq/cohort_analysis/3.1.0/2025-12-01T22-36-30Z/asap-cohort.final_metadata.csv.gz
+  3,578,056 v3.1.0 final-metadata barcode(s) parsed
+[INFO] 3,578,056 v3.1.0 barcode(s) mapped:
+  1:1_vs_v5.0.0_final: 2,631,378
+  ambiguous_in_v5.0.0_final: 0
+  only_in_cleaned_unfiltered_in_v5.0.0: 763,288
+  sample_id_not_found_in_v5.0.0: 174,371
+  not_mappable: 9,019
+  in_v3.1.0_final: 3,578,056 / 3,578,056
+[DONE] Written reference_building/benchmark/asap_barcode_mapping_v3_vs_v5/all_v3.1.0_barcodes_in_final/asap_barcode_mapping_v3_vs_v5.tsv.gz
+[DONE] Written reference_building/benchmark/asap_barcode_mapping_v3_vs_v5/all_v3.1.0_barcodes_in_final/asap_barcode_mapping_v3_vs_v5_summary.md
