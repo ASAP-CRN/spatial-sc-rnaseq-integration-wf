@@ -13,7 +13,7 @@
   "source_col": "source",
   "cell_type_key": "C_scANVI",
   "collapse_kamath_da_subtypes": false,
-  "obs_cols": ["source", "batch", "cell_type", "C_scANVI"],
+  "obs_cols": ["source", "batch_id", "cell_type", "C_scANVI"],
   "rename_obs_cols": {"cell_type": "cell_type_MMC"},
   "output_h5ad": "reference_building/reference_h5ad/deconvolution_reference_asap200k_kamathAllDAUnCollapsed_Siletti100k.h5ad",
   "filter_genes": "cell2location_u_da",

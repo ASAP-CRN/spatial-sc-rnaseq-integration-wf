@@ -23,12 +23,6 @@ from utils.logging_extra import log_run_command
 from utils.genomics_constants import KAMATH_DA_MARKER_SYMBOLS, KAMATH_DA_SUBTYPE_LABELS
 
 
-# obs columns always renamed in the output reference H5AD (old → new); merged
-# with, and overridable by, the JSON's optional rename_obs_cols field.
-_DEFAULT_RENAME_OBS_COLS = {
-    "batch": "batch_id",
-}
-
 _BATCH_COL = "batch_id"  # obs column used for per-batch cell-count filtering
 
 # sc-rnaseq-wf's spike-in convention: source is only set for spike-in cells
@@ -696,7 +690,7 @@ def prepare_reference(
     print(f"[DONE] {output_h5ad}")
 
 # _DEFAULT_OBS_COLS = ["source", "batch", "cell_type_pred", "pmdbs_sc_rnaseq.C_scANVI"] # used in releases < v5.0.0
-_DEFAULT_OBS_COLS = ["source", "batch", "ground_truth_cell_type", "cell_type", "C_scANVI"]
+_DEFAULT_OBS_COLS = ["source", "batch_id", "ground_truth_cell_type", "cell_type", "C_scANVI"]
 _FILTER_GENES_CHOICES = ("intersection", "cell2location_default", "cell2location_u_da")
 
 if __name__ == "__main__":
@@ -762,7 +756,6 @@ if __name__ == "__main__":
             "\n"
             "  rename_obs_cols (optional)\n"
             "      old_name -> new_name renames applied to obs_cols in the output H5AD.\n"
-            f"      Merged with, and able to override, the always-applied {_DEFAULT_RENAME_OBS_COLS}.\n"
             "      Example: {\"cell_type\": \"cell_type_MMC\"}\n"
             "\n"
             "  minimum_cells_per_batch (optional)\n"
@@ -850,7 +843,7 @@ if __name__ == "__main__":
         n_cells_map=n_cells_map,
         source_col=config.get("source_col", "source"),
         obs_cols=config.get("obs_cols", _DEFAULT_OBS_COLS),
-        rename_obs_cols={**_DEFAULT_RENAME_OBS_COLS, **config.get("rename_obs_cols", {})},
+        rename_obs_cols=config.get("rename_obs_cols", {}),
         min_cells_per_batch=config.get("minimum_cells_per_batch", 0),
         min_cells_per_type=config.get("minimum_cells_per_type", 0),
         force_all_da=config.get("force_all_da", False),

@@ -18,7 +18,7 @@ SC_RNASEQ_REFERENCE_ADATA="reference_building/reference_h5ad/strategy_3/deconvol
 OUTPUT_DIR="reference_building/benchmark/reference_data/ma/data/reformatted/cell2location_Strategy3"
 
 # Hyperparameters match this repo's prior cell2location_deconv.py runs.
-BATCH_KEY="batch"
+BATCH_KEY="batch_id"
 CELL_TYPE_KEY="harmonized_cell_type_siletti_allen"
 MAX_EPOCHS_REF=250
 MAX_EPOCHS_SPATIAL=30000

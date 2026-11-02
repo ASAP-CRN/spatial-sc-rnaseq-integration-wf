@@ -104,13 +104,19 @@ def select_asap_barcodes(
     print(f"  {len(v3_df):,} v3.1.0 ASAP barcode(s) parsed")
 
     print(f"[INFO] Loading v5.0.0 ASAP metadata from {v5_final_metadata_csv}")
-    v5_cols = ["source", "is_spike_in", "C_scANVI"]
+    v5_cols = ["source", "is_spike_in", "C_scANVI", "team", "dataset", "batch"]
     header = pd.read_csv(v5_final_metadata_csv, nrows=0)
     idx_col = header.columns[0]
     v5_meta = pd.read_csv(v5_final_metadata_csv, usecols=[idx_col] + v5_cols, index_col=idx_col, low_memory=False)
     native_mask = v5_meta["source"].isna()
     v5_native = v5_meta.loc[native_mask]
     print(f"  {len(v5_meta):,} total rows; {len(v5_native):,} native ASAP cell(s) (source is NaN)")
+
+    # batch_id: <team>-<batch> like `sc-rnaseq-wf to avoid collisions using "batch" alone (e.g. "Batch1") across datasets.
+    v5_native = v5_native.copy()
+    v5_native["batch_id"] = (
+        v5_native["team"].astype(str) + "-" + v5_native["dataset"].astype(str) + "-" + v5_native["batch"].astype(str)
+    )
 
     print("[INFO] Mapping v3.1.0 ASAP barcodes to v5.0.0 ...")
     v5_df = parse_v5_barcodes(pd.Index(v5_native.index))
@@ -142,6 +148,7 @@ def select_asap_barcodes(
 
     selected = pd.DataFrame({
         "C_scANVI": v5_native.loc[list(reason_by_barcode), "C_scANVI"],
+        "batch_id": v5_native.loc[list(reason_by_barcode), "batch_id"],
         "selection_reason": pd.Series(reason_by_barcode),
     })
     print(f"[INFO] {len(selected):,} ASAP barcode(s) selected total "
@@ -166,7 +173,8 @@ def build_kamath_block(v3_reference_h5ad: str, kamath_preqc_h5ad: str) -> ad.Ann
     -------
     ad.AnnData
         Kamath cells, X = raw UMI counts, obs[_CELL_TYPE_COLUMN] harmonized
-        via KAMATH_TO_SILETTI_ALLEN, obs["source"] = "kamath".
+        via KAMATH_TO_SILETTI_ALLEN, obs["source"] = "kamath",
+        obs["batch_id"] = "kamath-" + obs["batch"].
 
     Raises
     ------
@@ -193,6 +201,7 @@ def build_kamath_block(v3_reference_h5ad: str, kamath_preqc_h5ad: str) -> ad.Ann
         raise KeyError(f"cell_type_scanvi value(s) not in KAMATH_TO_SILETTI_ALLEN: {unmapped}")
     kamath.obs[_CELL_TYPE_COLUMN] = kamath.obs["cell_type_scanvi"].map(KAMATH_TO_SILETTI_ALLEN)
     kamath.obs["source"] = "kamath"
+    kamath.obs["batch_id"] = "kamath-" + kamath.obs["batch"].astype(str)
     print(f"  {kamath.n_obs:,} cells x {kamath.n_vars:,} genes")
     return kamath
 
@@ -213,7 +222,8 @@ def build_siletti_block(v3_reference_h5ad: str, siletti_preqc_h5ad: str) -> ad.A
     -------
     ad.AnnData
         Siletti cells, X = raw UMI counts, obs[_CELL_TYPE_COLUMN] = native
-        supercluster_term, obs["source"] = "siletti".
+        supercluster_term, obs["source"] = "siletti",
+        obs["batch_id"] = "siletti-" + obs["batch"].
 
     Raises
     ------
@@ -236,6 +246,7 @@ def build_siletti_block(v3_reference_h5ad: str, siletti_preqc_h5ad: str) -> ad.A
 
     siletti.obs[_CELL_TYPE_COLUMN] = siletti.obs["supercluster_term"].astype(str)
     siletti.obs["source"] = "siletti"
+    siletti.obs["batch_id"] = "siletti-" + siletti.obs["batch"].astype(str)
     print(f"  {siletti.n_obs:,} cells x {siletti.n_vars:,} genes")
     return siletti
 
@@ -255,8 +266,9 @@ def build_asap_block(selected: pd.DataFrame, asap_v5_unfiltered_h5ad: str) -> ad
     -------
     ad.AnnData
         Selected ASAP cells, X = raw UMI counts, obs[_CELL_TYPE_COLUMN] =
-        C_scANVI, obs["source"] = "asap_cohort", obs["selection_reason"]
-        carried through from `selected`.
+        C_scANVI, obs["source"] = "asap_cohort", obs["selection_reason"] and
+        obs["batch_id"] ("{team}-{dataset}-{batch}") carried through from
+        `selected`.
 
     Raises
     ------
@@ -286,6 +298,7 @@ def build_asap_block(selected: pd.DataFrame, asap_v5_unfiltered_h5ad: str) -> ad
 
     asap.obs[_CELL_TYPE_COLUMN] = selected.loc[asap.obs_names, "C_scANVI"].values
     asap.obs["selection_reason"] = selected.loc[asap.obs_names, "selection_reason"].values
+    asap.obs["batch_id"] = selected.loc[asap.obs_names, "batch_id"].values
     asap.obs["source"] = "asap_cohort"
     print(f"  {asap.n_obs:,} cells x {asap.n_vars:,} genes")
     return asap
