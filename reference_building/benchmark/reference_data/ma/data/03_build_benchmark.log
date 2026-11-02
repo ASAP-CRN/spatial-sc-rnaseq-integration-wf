@@ -1,0 +1,10 @@
+[2026-10-14 18:05:30] reference_building/benchmark/reference_data/ma/scripts/03_build_benchmark.py --spot-metadata-csv reference_building/benchmark/reference_data/ma/data/original/spot_metadata_all_samples.csv.gz --supplementary-xlsx reference_building/benchmark/reference_data/ma/data/original/41467_2025_62478_MOESM3_ESM.xlsx
+
+Loaded 11859 spots from reference_building/benchmark/reference_data/ma/data/original/spot_metadata_all_samples.csv.gz
+Loaded 44 BayesSpace cluster rows from reference_building/benchmark/reference_data/ma/data/original/41467_2025_62478_MOESM3_ESM.xlsx
+
+Sanity check -- mean Dopaminergic_Neuron proportion by region:
+  Surrounding_Tissue: n_spots=10048, mean=0.2372
+  Nigra: n_spots=1811, mean=0.4546
+
+Written reference_building/benchmark/reference_data/ma/data/reformatted/per_spot_benchmark_al_dalahmah_sn.csv.gz

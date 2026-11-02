@@ -1,0 +1,13 @@
+[2026-10-16 14:52:50] reference_building/benchmark/reference_data/ma/scripts/01_fetch_al_dalahmah_zenodo_data.py
+
+
+=== Fetching data/processed_st_obj.rds (Zenodo 19454950) ===
+  Cached (384 MB): reference_building/benchmark/reference_data/ma/data/original/processed_st_obj.rds
+
+=== Fetching Supplementary Data/41467_2025_62478_MOESM3_ESM.xlsx (Zenodo 19457732) ===
+  Cached (0 MB): reference_building/benchmark/reference_data/ma/data/original/41467_2025_62478_MOESM3_ESM.xlsx
+
+Done.
+  Seurat object list: reference_building/benchmark/reference_data/ma/data/original/processed_st_obj.rds
+  Supplementary Data 1: reference_building/benchmark/reference_data/ma/data/original/41467_2025_62478_MOESM3_ESM.xlsx
+Next: run 02_export_spot_metadata.R, then 03_build_benchmark.py.
