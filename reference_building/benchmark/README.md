@@ -27,9 +27,9 @@ side-by-side comparison).
 
 ### Strategy 1
 * Motivation: Build a temporary reference with `sc-rnaseq-wf` v3.1.0 cells while v5.0.0 was being developed.
-* File: `deconvolution_reference_300k_c2lUda_Kamath200Rand.h5ad` -> `deconvolution_reference_strategy1.h5ad`
-* Generated with: `downsample_kamath_menon_siletti_asap.py` -> `integrate_kamath_menon_siletti_asap.py`
-* Reference integration logic: used scVI+scANVI with parameters similar to the `sc-rnaseq-wf` v5.0.0 pipeline. Here, only cells listed below were used--not the whole ASAP cohort--and used scANVI-propagated Kamath labels for training, not the 
+* File: `deconvolution_reference_300k_c2lUda_Kamath200Rand.h5ad`.
+* Generated with: `downsample_kamath_menon_siletti_asap.py`, then `integrate_kamath_menon_siletti_asap.py`.
+* Reference integration logic: used scVI+scANVI with parameters similar to the `sc-rnaseq-wf` v5.0.0 pipeline. Here, only cells listed below were used--not the whole ASAP cohort--and used scANVI-propagated Kamath labels for training.
 * Cells included:
   * ASAP cells: 100k random from sc-rnaseq-wf workflow v3.1.0.
   * Siletti cells: 100k — all ~805 DA VGLUT2 cells, then top-up random from all cell types.

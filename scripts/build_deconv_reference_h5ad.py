@@ -36,6 +36,10 @@ _BATCH_COL = "batch_id"  # obs column used for per-batch cell-count filtering
 # as this literal source name throughout.
 _NAN_SOURCE_LABEL = "asap_cohort"
 
+# cell_type_key values that --force-all-da always includes in full.
+_DOPAMINERGIC_LABEL = "Dopaminergic"
+_FORCE_ALL_DA_LABELS = frozenset({_DOPAMINERGIC_LABEL}) | KAMATH_DA_SUBTYPE_LABELS
+
 
 def _resolve_repo_path(path: str) -> str:
     """
@@ -289,6 +293,54 @@ def _top_up_rare_cell_types(
     return result
 
 
+def _force_include_all_da_cells(
+    integrated_obs: pd.DataFrame,
+    source_barcodes: dict,
+    source_col: str,
+    subset_sources: list,
+    cell_type_key: str,
+) -> dict:
+    """
+    Force-include every cell labelled "Dopaminergic" or a Kamath et al. (2022)
+    DA subtypes, regardless of n_cells sampling.
+
+    Parameters
+    ----------
+    integrated_obs : pandas.DataFrame
+        Full obs table (barcode-indexed).
+    source_barcodes : dict
+        source → list of already-selected barcodes (not mutated).
+    source_col : str
+        Column identifying the source dataset.
+    subset_sources : list
+        Sources eligible (must have a preQC H5AD).
+    cell_type_key : str
+        obs column checked against `_FORCE_ALL_DA_LABELS`.
+
+    Returns
+    -------
+    dict
+        source → list of barcodes, with every DA-related cell merged in.
+    """
+    result = {src: list(bcs) for src, bcs in source_barcodes.items()}
+    selected = set(bc for bcs in result.values() for bc in bcs)
+    n_before = len(selected)
+
+    eligible = integrated_obs[integrated_obs[source_col].isin(subset_sources)]
+    da_cells = eligible[eligible[cell_type_key].isin(_FORCE_ALL_DA_LABELS)]
+
+    for bc, src in zip(da_cells.index, da_cells[source_col]):
+        if bc not in selected:
+            result.setdefault(src, []).append(bc)
+            selected.add(bc)
+
+    print(f"[INFO] --force-all-da: {len(da_cells):,} DA-related cells found "
+          f"({sorted(da_cells[cell_type_key].unique())}); "
+          f"added {len(selected) - n_before:,} not already selected.")
+
+    return result
+
+
 def _load_source_counts(
     preqc_h5ad: str,
     target_barcodes: list,
@@ -408,6 +460,7 @@ def prepare_reference(
     rename_obs_cols: dict,
     min_cells_per_batch: int,
     min_cells_per_type: int,
+    force_all_da: bool,
     cell_type_key: str,
     collapse_kamath_da_subtypes: bool,
     output_h5ad: str,
@@ -442,6 +495,8 @@ def prepare_reference(
         Top up any cell_type_key value under this many cells, drawing extras from
         integrated_obs not already selected (capped at however many actually exist).
         0 disables this.
+    force_all_da : bool
+        If True, force-include every "Dopaminergic" or Kamath DA subtype cells, regardless of n_cells sampling.
     cell_type_key : str
         obs column with cell-type labels (must be in obs_cols).
     collapse_kamath_da_subtypes : bool
@@ -491,6 +546,11 @@ def prepare_reference(
         source_barcodes = _top_up_rare_cell_types(
             integrated_obs, source_barcodes, source_col, subset_sources,
             cell_type_key, min_cells_per_type, seed,
+        )
+
+    if force_all_da:
+        source_barcodes = _force_include_all_da_cells(
+            integrated_obs, source_barcodes, source_col, subset_sources, cell_type_key,
         )
 
     source_obs = {}
@@ -716,6 +776,10 @@ if __name__ == "__main__":
             "      cells available in total is capped at however many actually exist\n"
             "      (no error). Default: 0 (disabled)\n"
             "\n"
+            "  force_all_da (optional)\n"
+            "      If true, force-include every \"Dopaminergic\" or Kamath et al. (2022)\n"
+            "      DA subtype cells in cell_type_key, regardless of n_cells sampling. Default: false\n"
+            "\n"
             "  filter_genes (optional)\n"
             "      Gene set to write, beyond the raw cross-source intersection:\n"
             "        intersection          : no further filtering (default).\n"
@@ -789,6 +853,7 @@ if __name__ == "__main__":
         rename_obs_cols={**_DEFAULT_RENAME_OBS_COLS, **config.get("rename_obs_cols", {})},
         min_cells_per_batch=config.get("minimum_cells_per_batch", 0),
         min_cells_per_type=config.get("minimum_cells_per_type", 0),
+        force_all_da=config.get("force_all_da", False),
         cell_type_key=config.get("cell_type_key", "C_scANVI"),
         collapse_kamath_da_subtypes=config.get("collapse_kamath_da_subtypes", True),
         output_h5ad=output_h5ad,
