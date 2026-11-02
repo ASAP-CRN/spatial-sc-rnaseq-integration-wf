@@ -103,15 +103,16 @@ In the table below:
 
 ## Directory contents, inputs, and outputs (StrategyN = reference building strategy number {1-3})
 
+Relative to: `<repo_root>/reference_building/benchmark/reference_data/ma/scripts/` unless otherwise indicated
 | Path | What | Inputs | Key outputs |
 |---|---|---|---|
-| `scripts/01_fetch_al_dalahmah_zenodo_data.py` | Step 1. Fetch the two Zenodo artifacts needed for the benchmark | Zenodo records 19454950 / 19457732 (network) | `data/original/{processed_st_obj.rds, 41467_2025_62478_MOESM3_ESM.xlsx}` |
-| `scripts/02_export_spot_metadata.R` | Step 2. Export per-spot Region/Condition/BayesSpace-cluster metadata from the Seurat object list | `data/original/processed_st_obj.rds` (step 1) | `data/reformatted/spot_metadata_all_samples.csv.gz` |
-| `scripts/03_build_benchmark.py` | Step 3. Join spot metadata to Supplementary Data 1's per-cluster RCTD proportions | Spot metadata (step 2) + Supplementary Data 1 xlsx (step 1) | `data/reformatted/per_spot_benchmark_al_dalahmah_sn.csv.gz` |
-| `scripts/04_plot_sn_dopa_gaba_meg3_pd_vs_control.py` | Step 4. (Optional) Standalone exploratory PD-vs-control stats/plots on the RCTD benchmark (not required for steps 5-7) | Benchmark table (step 3) | `data/analysis/*.html` |
-| `scripts/05_format_visium_for_cell2location.py` | Step 5. Convert each sample's Space Ranger `outs/` zip into a Cell2Location-ready h5ad | `data/original/*_result-*.zip` | `data/reformatted/spatial_h5ad/<sample>.spatial.h5ad` |
-| `scripts/06_submit_cell2location_RefStrategyN.sh` | Step 6. Run this repo's `cell2location_deconv.py` against StrategyN's reference — reference training once, then spatial mapping + clustering per sample | Spatial h5ads (step 5) + StrategyN reference h5ad | `data/reformatted/cell2location_StrategyN/<sample>.deconvoluted_clustered.h5ad` |
-| `scripts/07_agreement_matrix_reference_RefStrategyN.py` | Step 7. Pool both sides into a shared cell-type vocabulary and compare as continuous proportions (PCC/RMSE/Jensen-Shannon) | StrategyN Cell2Location outputs (step 6) + benchmark table (step 3) | `data/reformatted/cell2location_StrategyN/asap_agreement_*.csv.gz` |
+| `01_fetch_al_dalahmah_zenodo_data.py` | Step 1. Fetch the two Zenodo artifacts needed for the benchmark | Zenodo records 19454950 / 19457732 (network) | `data/original/{processed_st_obj.rds, 41467_2025_62478_MOESM3_ESM.xlsx}` |
+| `02_export_spot_metadata.R` | Step 2. Export per-spot Region/Condition/BayesSpace-cluster metadata from the Seurat object list | `data/original/processed_st_obj.rds` (step 1) | `data/reformatted/spot_metadata_all_samples.csv.gz` |
+| `03_build_benchmark.py` | Step 3. Join spot metadata to Supplementary Data 1's per-cluster RCTD proportions | Spot metadata (step 2) + Supplementary Data 1 xlsx (step 1) | `data/reformatted/per_spot_benchmark_al_dalahmah_sn.csv.gz` |
+| `04_plot_sn_dopa_gaba_meg3_pd_vs_control.py` | Step 4. (Optional) Standalone exploratory PD-vs-control stats/plots on the RCTD benchmark (not required for steps 5-7) | Benchmark table (step 3) | `data/analysis/*.html` |
+| `05_format_visium_for_cell2location.py` | Step 5. Convert each sample's Space Ranger `outs/` zip into a Cell2Location-ready h5ad | `data/original/*_result-*.zip` | `data/reformatted/spatial_h5ad/<sample>.spatial.h5ad` |
+| `06_submit_cell2location_RefStrategyN.sh` | Step 6. Run this repo's `cell2location_deconv.py` against StrategyN's reference — reference training once, then spatial mapping + clustering per sample | Spatial h5ads (step 5) + StrategyN reference h5ad | `data/reformatted/cell2location_StrategyN/<sample>.deconvoluted_clustered.h5ad` |
+| `07_agreement_matrix_reference_RefStrategyN.py` | Step 7. Pool both sides into a shared cell-type vocabulary and compare as continuous proportions (PCC/RMSE/Jensen-Shannon) | StrategyN Cell2Location outputs (step 6) + benchmark table (step 3) | `data/reformatted/cell2location_StrategyN/asap_agreement_*.csv.gz` |
 | `<repo_root>/notebooks/visualize_deconvolution.ipynb` | Interactive Jupyter notebook to explore a single strategy's benchmark analysis | Outputs from steps 06 and 07 (one strategy at a time) | Agreement matrix heatmap, detailed spatial plots |
 | `<repo_root>/notebooks/compare_reference.ipynb` | Interactive Jupyter notebook comparing all 3 strategies side by side | Outputs from steps 06 and 07 (all 3 strategies) | Side-by-side agreement matrices, spatial plots, and per-spot agreement scatter |
-| `docs/` | Workflow diagram and other supporting documentation assets. | — | — |
+| `<repo_root>/reference_building/benchmark/docs/` | Workflow diagram and other supporting documentation assets. | — | — |
