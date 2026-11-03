@@ -65,10 +65,22 @@ workflow spatial_sc_rnaseq_integration {
 		String zones = "us-central1-c us-central1-f"
 	}
 
+	# Owned by this repo's release process; bump alongside a GitHub release, not at submission time.
+	String workflow_name = "spatial_sc_rnaseq_integration"
+	String workflow_version = "v1.0.0"
+	String workflow_release = "https://github.com/ASAP-CRN/spatial-sc-rnaseq-integration-wf/releases/tag/~{workflow_name}-~{workflow_version}"
+
 	call GetWorkflowMetadata.get_workflow_metadata {
 		input:
 			zones = zones
 	}
+
+	Array[Array[String]] workflow_info = [[get_workflow_metadata.timestamp, workflow_name, workflow_version, workflow_release]]
+
+	# Per the output bucket's team-agreed naming convention, deconvolution outputs are grouped under the
+	# existing spatial_visium domain (alongside spatial-transcriptomics-wf's own preprocess outputs),
+	# not under this repo's own spatial_sc_rnaseq_integration workflow name.
+	String raw_data_path_prefix = "~{cohort_raw_data_bucket_spatial_sc_rnaseq}/workflow_execution/spatial_visium/deconvolution_analysis"
 
 	# Flatten per-sample data across all projects (WDL 1.0: scatter then flatten)
 	scatter (project in spatial_visium_projects) {
@@ -92,7 +104,8 @@ workflow spatial_sc_rnaseq_integration {
 			leiden_res = leiden_res,
 			run_stages = run_stages,
 			preemptible = preemptible,
-			raw_data_path = cohort_raw_data_bucket_spatial_sc_rnaseq,
+			raw_data_path_prefix = raw_data_path_prefix,
+			workflow_info = workflow_info,
 			billing_project = get_workflow_metadata.billing_project,
 			container_registry = container_registry,
 			zones = zones
@@ -100,18 +113,18 @@ workflow spatial_sc_rnaseq_integration {
 
 	output {
 		# Flat over all samples; null when run_stages excludes Stage 2.
-		Array[File?] visium_deconvoluted_adata_objects = deconvolution.visium_deconvoluted_adata_objects
-		Array[File?] visium_deconvolution_metadata_csvs = deconvolution.visium_deconvolution_metadata_csvs
-		Array[File?] visium_deconvolution_training_history_pngs = deconvolution.visium_deconvolution_training_history_pngs
-		Array[File?] visium_deconvolution_timing_tsvs = deconvolution.visium_deconvolution_timing_tsvs
+		Array[String?] visium_deconvoluted_adata_objects = deconvolution.visium_deconvoluted_adata_objects
+		Array[String?] visium_deconvolution_metadata_csvs = deconvolution.visium_deconvolution_metadata_csvs
+		Array[String?] visium_deconvolution_training_history_pngs = deconvolution.visium_deconvolution_training_history_pngs
+		Array[String?] visium_deconvolution_timing_tsvs = deconvolution.visium_deconvolution_timing_tsvs
 		# Flat over all samples; null when run_stages excludes Stage 3.
-		Array[File?] visium_deconvoluted_clustered_adata_objects = deconvolution.visium_deconvoluted_clustered_adata_objects
-		Array[File?] visium_deconvolution_clustering_metadata_csvs = deconvolution.visium_deconvolution_clustering_metadata_csvs
-		Array[File?] visium_deconvolution_clustering_timing_tsvs = deconvolution.visium_deconvolution_clustering_timing_tsvs
+		Array[String?] visium_deconvoluted_clustered_adata_objects = deconvolution.visium_deconvoluted_clustered_adata_objects
+		Array[String?] visium_deconvolution_clustering_metadata_csvs = deconvolution.visium_deconvolution_clustering_metadata_csvs
+		Array[String?] visium_deconvolution_clustering_timing_tsvs = deconvolution.visium_deconvolution_clustering_timing_tsvs
 		# Built once; null when run_stages excludes Stage 1.
-		File? sc_rnaseq_reference_inf_aver_csv_gz = deconvolution.sc_rnaseq_reference_inf_aver_csv_gz
-		File? sc_rnaseq_reference_training_history_png = deconvolution.sc_rnaseq_reference_training_history_png
-		File? sc_rnaseq_reference_build_timing_tsv = deconvolution.sc_rnaseq_reference_build_timing_tsv
+		String? sc_rnaseq_reference_inf_aver_csv_gz = deconvolution.sc_rnaseq_reference_inf_aver_csv_gz
+		String? sc_rnaseq_reference_training_history_png = deconvolution.sc_rnaseq_reference_training_history_png
+		String? sc_rnaseq_reference_build_timing_tsv = deconvolution.sc_rnaseq_reference_build_timing_tsv
 	}
 
 	parameter_meta {
@@ -130,20 +143,20 @@ workflow spatial_sc_rnaseq_integration {
 		leiden_res: {help: "Leiden resolutions for clustering on deconvolved cell type fractions (Stage 3); one clustering per resolution. [0.2, 0.5, 1.0]"}
 		run_stages: {help: "Comma-separated subset of {1,2,3} — which stages to run: 1 = build Cell2location inf_aver.csv.gz deconvolution reference, 2 = Cell2location spatial mapping (per sample), 3 = Leiden clustering on deconvolved cell type fractions. ['1,2,3']"}
 		preemptible: {help: "Number of preemptible-VM attempts before Cromwell falls back to on-demand; 0 forces on-demand from the first attempt. [3]"}
-		cohort_raw_data_bucket_spatial_sc_rnaseq: {help: "GCS path to raw data bucket; intermediate outputs are stored here."}
+		cohort_raw_data_bucket_spatial_sc_rnaseq: {help: "GCS path to the raw data bucket root; task outputs are uploaded under `<this>/workflow_execution/spatial_visium/deconvolution_analysis/<task_name>/<cell2location_version>`."}
 		container_registry: {help: "Container registry hosting workflow Docker images."}
 		zones: {help: "GCP zones where compute will run. ['us-central1-c us-central1-f']"}
 
 		# Outputs
-		visium_deconvoluted_adata_objects: {help: "Cell2location deconvoluted AnnData objects (.h5ad), one per Visium sample; null for a sample when run_stages excludes Stage 2."}
-		visium_deconvolution_metadata_csvs: {help: "Per-spot deconvolution metadata CSV cell type fractions; null for a sample when run_stages excludes Stage 2."}
-		visium_deconvolution_training_history_pngs: {help: "Cell2location spatial mapping (Stage 2) ELBO training-loss plot, one per Visium sample; null for a sample when run_stages excludes Stage 2."}
-		visium_deconvolution_timing_tsvs: {help: "Per-step timing breakdown (Stage 2 run), one per Visium sample; null for a sample when run_stages excludes Stage 2."}
-		visium_deconvoluted_clustered_adata_objects: {help: "Cell2location deconvoluted AnnData objects (.h5ad) with Leiden cluster columns added, one per Visium sample; null for a sample when run_stages excludes Stage 3."}
-		visium_deconvolution_clustering_metadata_csvs: {help: "Per-spot deconvolution metadata CSV cell type fractions with Leiden cluster columns added; null for a sample when run_stages excludes Stage 3."}
-		visium_deconvolution_clustering_timing_tsvs: {help: "Per-step timing breakdown (Stage 3 run), one per Visium sample; null for a sample when run_stages excludes Stage 3."}
-		sc_rnaseq_reference_inf_aver_csv_gz: {help: "Cell2location reference signature (<ref_stem>_inf_aver.csv.gz), built once for the whole cohort; null when run_stages excludes Stage 1."}
-		sc_rnaseq_reference_training_history_png: {help: "NB regression (Stage 1) ELBO training-loss plot, built once for the whole cohort; null when run_stages excludes Stage 1."}
-		sc_rnaseq_reference_build_timing_tsv: {help: "Per-step timing breakdown (Stage 1 run), built once for the whole cohort; null when run_stages excludes Stage 1."}
+		visium_deconvoluted_adata_objects: {help: "GCS paths to Cell2location deconvoluted AnnData objects (.h5ad), one per Visium sample; null for a sample when run_stages excludes Stage 2."}
+		visium_deconvolution_metadata_csvs: {help: "GCS paths to per-spot deconvolution metadata CSV cell type fractions; null for a sample when run_stages excludes Stage 2."}
+		visium_deconvolution_training_history_pngs: {help: "GCS paths to Cell2location spatial mapping (Stage 2) ELBO training-loss plot, one per Visium sample; null for a sample when run_stages excludes Stage 2."}
+		visium_deconvolution_timing_tsvs: {help: "GCS paths to per-step timing breakdown (Stage 2 run), one per Visium sample; null for a sample when run_stages excludes Stage 2."}
+		visium_deconvoluted_clustered_adata_objects: {help: "GCS paths to Cell2location deconvoluted AnnData objects (.h5ad) with Leiden cluster columns added, one per Visium sample; null for a sample when run_stages excludes Stage 3."}
+		visium_deconvolution_clustering_metadata_csvs: {help: "GCS paths to per-spot deconvolution metadata CSV cell type fractions with Leiden cluster columns added; null for a sample when run_stages excludes Stage 3."}
+		visium_deconvolution_clustering_timing_tsvs: {help: "GCS paths to per-step timing breakdown (Stage 3 run), one per Visium sample; null for a sample when run_stages excludes Stage 3."}
+		sc_rnaseq_reference_inf_aver_csv_gz: {help: "GCS path to the Cell2location reference signature (<ref_stem>_inf_aver.csv.gz), built once for the whole cohort; null when run_stages excludes Stage 1."}
+		sc_rnaseq_reference_training_history_png: {help: "GCS path to the NB regression (Stage 1) ELBO training-loss plot, built once for the whole cohort; null when run_stages excludes Stage 1."}
+		sc_rnaseq_reference_build_timing_tsv: {help: "GCS path to the per-step timing breakdown (Stage 1 run), built once for the whole cohort; null when run_stages excludes Stage 1."}
 	}
 }

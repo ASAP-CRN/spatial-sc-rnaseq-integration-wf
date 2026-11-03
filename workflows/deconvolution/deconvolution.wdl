@@ -43,7 +43,8 @@ workflow deconvolution {
 		String run_stages
 		Int preemptible
 
-		String raw_data_path
+		String raw_data_path_prefix
+		Array[Array[String]] workflow_info
 		String billing_project
 		String container_registry
 		String zones
@@ -54,6 +55,12 @@ workflow deconvolution {
 	Boolean include_stage2 = sub(run_stages, "2", "x") != run_stages
 	Boolean include_stage3 = sub(run_stages, "3", "x") != run_stages
 
+	# Shared across all 3 cell2location tasks; bumped alongside the cell2location_tools docker image tag.
+	String cell2location_version = "1.0.0"
+	String build_reference_raw_data_path = "~{raw_data_path_prefix}/build_reference/~{cell2location_version}"
+	String deconvolute_visium_raw_data_path = "~{raw_data_path_prefix}/deconvolute_visium/~{cell2location_version}"
+	String cluster_visium_raw_data_path = "~{raw_data_path_prefix}/cluster_visium/~{cell2location_version}"
+
 	# Stage 1: reference signature, built once to deconvolute all samples -- not per sample.
 	if (include_stage1) {
 		call cell2location_build_reference {
@@ -63,7 +70,8 @@ workflow deconvolution {
 				cell_type_key = cell_type_key,
 				max_epochs_ref = max_epochs_ref,
 				preemptible = preemptible,
-				raw_data_path = raw_data_path,
+				raw_data_path = build_reference_raw_data_path,
+				workflow_info = workflow_info,
 				billing_project = billing_project,
 				container_registry = container_registry,
 				zones = zones
@@ -73,7 +81,7 @@ workflow deconvolution {
 	# Either the reference signature just built above, or a user-supplied pre-computed inf_aver.csv.gz file.
 	File? resolved_reference_model = if include_stage1
 		then cell2location_build_reference.inf_aver_csv_gz
-		else sc_rnaseq_reference_cell2location_model
+		else sc_rnaseq_reference_cell2location_model #!FileCoercion
 
 	# scatter flat to deconvolute all spatial samples
 	scatter (sample in visium_samples) {
@@ -87,7 +95,8 @@ workflow deconvolution {
 					detection_alpha = detection_alpha,
 					max_epochs_spatial = max_epochs_spatial,
 					preemptible = preemptible,
-					raw_data_path = raw_data_path,
+					raw_data_path = deconvolute_visium_raw_data_path,
+					workflow_info = workflow_info,
 					billing_project = billing_project,
 					container_registry = container_registry,
 					zones = zones
@@ -98,12 +107,13 @@ workflow deconvolution {
 			call cell2location_cluster_visium {
 				input:
 					sample_id = sample.sample_id,
-					spatial_deconvolution_adata = select_first([cell2location_deconvolute_visium.deconvoluted_adata_object]),
+					spatial_deconvolution_adata = select_first([cell2location_deconvolute_visium.deconvoluted_adata_object]), #!FileCoercion
 					n_comps = n_comps,
 					n_neighbors = n_neighbors,
 					leiden_res = leiden_res,
 					preemptible = preemptible,
-					raw_data_path = raw_data_path,
+					raw_data_path = cluster_visium_raw_data_path,
+					workflow_info = workflow_info,
 					billing_project = billing_project,
 					container_registry = container_registry,
 					zones = zones
@@ -113,18 +123,18 @@ workflow deconvolution {
 
 	output {
 		# Flat over all samples; null for a sample when run_stages excludes Stage 2.
-		Array[File?] visium_deconvoluted_adata_objects = cell2location_deconvolute_visium.deconvoluted_adata_object
-		Array[File?] visium_deconvolution_metadata_csvs = cell2location_deconvolute_visium.deconvolution_metadata_csv
-		Array[File?] visium_deconvolution_training_history_pngs = cell2location_deconvolute_visium.stage2_spatial_training_history_png
-		Array[File?] visium_deconvolution_timing_tsvs = cell2location_deconvolute_visium.timing_tsv
+		Array[String?] visium_deconvoluted_adata_objects = cell2location_deconvolute_visium.deconvoluted_adata_object
+		Array[String?] visium_deconvolution_metadata_csvs = cell2location_deconvolute_visium.deconvolution_metadata_csv
+		Array[String?] visium_deconvolution_training_history_pngs = cell2location_deconvolute_visium.stage2_spatial_training_history_png
+		Array[String?] visium_deconvolution_timing_tsvs = cell2location_deconvolute_visium.timing_tsv
 		# Flat over all samples; null for a sample when run_stages excludes Stage 3.
-		Array[File?] visium_deconvoluted_clustered_adata_objects = cell2location_cluster_visium.deconvoluted_adata_object
-		Array[File?] visium_deconvolution_clustering_metadata_csvs = cell2location_cluster_visium.deconvolution_metadata_csv
-		Array[File?] visium_deconvolution_clustering_timing_tsvs = cell2location_cluster_visium.timing_tsv
+		Array[String?] visium_deconvoluted_clustered_adata_objects = cell2location_cluster_visium.deconvoluted_adata_object
+		Array[String?] visium_deconvolution_clustering_metadata_csvs = cell2location_cluster_visium.deconvolution_metadata_csv
+		Array[String?] visium_deconvolution_clustering_timing_tsvs = cell2location_cluster_visium.timing_tsv
 		# Built once; null when run_stages excludes Stage 1.
-		File? sc_rnaseq_reference_inf_aver_csv_gz = cell2location_build_reference.inf_aver_csv_gz
-		File? sc_rnaseq_reference_training_history_png = cell2location_build_reference.stage1_ref_training_history_png
-		File? sc_rnaseq_reference_build_timing_tsv = cell2location_build_reference.ref_build_timing_tsv
+		String? sc_rnaseq_reference_inf_aver_csv_gz = cell2location_build_reference.inf_aver_csv_gz
+		String? sc_rnaseq_reference_training_history_png = cell2location_build_reference.stage1_ref_training_history_png
+		String? sc_rnaseq_reference_build_timing_tsv = cell2location_build_reference.ref_build_timing_tsv
 	}
 
 	parameter_meta {
@@ -143,22 +153,23 @@ workflow deconvolution {
 		leiden_res: {help: "Leiden resolutions for clustering on deconvolved cell type fractions (Stage 3); one clustering per resolution."}
 		run_stages: {help: "Comma-separated subset of {1,2,3} — which stages to run: 1 = build Cell2location inf_aver.csv.gz deconvolution reference, 2 = Cell2location spatial mapping (per sample), 3 = Leiden clustering on deconvolved cell type fractions."}
 		preemptible: {help: "Number of preemptible-VM attempts before Cromwell falls back to on-demand; 0 forces on-demand from the first attempt."}
-		raw_data_path: {help: "GCS path to raw data bucket; intermediate outputs are stored here."}
+		raw_data_path_prefix: {help: "Raw data bucket path prefix; each task's outputs are uploaded to its own versioned subpath below this prefix (`<raw_data_path_prefix>/<task_name>/<cell2location_version>`)."}
+		workflow_info: {help: "UTC timestamp, workflow name, workflow version, and GitHub release; stored in the file-level manifest alongside each uploaded output."}
 		billing_project: {help: "GCP billing project for requester-pays bucket access."}
 		container_registry: {help: "Container registry hosting workflow Docker images."}
 		zones: {help: "GCP zones where compute will run."}
 
 		# Outputs
-		visium_deconvoluted_adata_objects: {help: "Cell2location deconvoluted AnnData objects (.h5ad), one per Visium sample; null for a sample when run_stages excludes Stage 2."}
-		visium_deconvolution_metadata_csvs: {help: "Per-spot deconvolution metadata CSV cell type fractions; null for a sample when run_stages excludes Stage 2."}
-		visium_deconvolution_training_history_pngs: {help: "Cell2location spatial mapping (Stage 2) ELBO training-loss plot, one per Visium sample; null for a sample when run_stages excludes Stage 2."}
-		visium_deconvolution_timing_tsvs: {help: "Per-step timing breakdown (Stage 2 run), one per Visium sample; null for a sample when run_stages excludes Stage 2."}
-		visium_deconvoluted_clustered_adata_objects: {help: "Cell2location deconvoluted AnnData objects (.h5ad) with Leiden cluster columns added, one per Visium sample; null for a sample when run_stages excludes Stage 3."}
-		visium_deconvolution_clustering_metadata_csvs: {help: "Per-spot deconvolution metadata CSV cell type fractions with Leiden cluster columns added; null for a sample when run_stages excludes Stage 3."}
-		visium_deconvolution_clustering_timing_tsvs: {help: "Per-step timing breakdown (Stage 3 run), one per Visium sample; null for a sample when run_stages excludes Stage 3."}
-		sc_rnaseq_reference_inf_aver_csv_gz: {help: "Cell2location reference signature (<ref_stem>_inf_aver.csv.gz), built once for the whole cohort; null when run_stages excludes Stage 1."}
-		sc_rnaseq_reference_training_history_png: {help: "NB regression (Stage 1) ELBO training-loss plot, built once for the whole cohort; null when run_stages excludes Stage 1."}
-		sc_rnaseq_reference_build_timing_tsv: {help: "Per-step timing breakdown (Stage 1 run), built once for the whole cohort; null when run_stages excludes Stage 1."}
+		visium_deconvoluted_adata_objects: {help: "GCS paths to Cell2location deconvoluted AnnData objects (.h5ad), one per Visium sample; null for a sample when run_stages excludes Stage 2."}
+		visium_deconvolution_metadata_csvs: {help: "GCS paths to per-spot deconvolution metadata CSV cell type fractions; null for a sample when run_stages excludes Stage 2."}
+		visium_deconvolution_training_history_pngs: {help: "GCS paths to Cell2location spatial mapping (Stage 2) ELBO training-loss plot, one per Visium sample; null for a sample when run_stages excludes Stage 2."}
+		visium_deconvolution_timing_tsvs: {help: "GCS paths to per-step timing breakdown (Stage 2 run), one per Visium sample; null for a sample when run_stages excludes Stage 2."}
+		visium_deconvoluted_clustered_adata_objects: {help: "GCS paths to Cell2location deconvoluted AnnData objects (.h5ad) with Leiden cluster columns added, one per Visium sample; null for a sample when run_stages excludes Stage 3."}
+		visium_deconvolution_clustering_metadata_csvs: {help: "GCS paths to per-spot deconvolution metadata CSV cell type fractions with Leiden cluster columns added; null for a sample when run_stages excludes Stage 3."}
+		visium_deconvolution_clustering_timing_tsvs: {help: "GCS paths to per-step timing breakdown (Stage 3 run), one per Visium sample; null for a sample when run_stages excludes Stage 3."}
+		sc_rnaseq_reference_inf_aver_csv_gz: {help: "GCS path to the Cell2location reference signature (<ref_stem>_inf_aver.csv.gz), built once for the whole cohort; null when run_stages excludes Stage 1."}
+		sc_rnaseq_reference_training_history_png: {help: "GCS path to the NB regression (Stage 1) ELBO training-loss plot, built once for the whole cohort; null when run_stages excludes Stage 1."}
+		sc_rnaseq_reference_build_timing_tsv: {help: "GCS path to the per-step timing breakdown (Stage 1 run), built once for the whole cohort; null when run_stages excludes Stage 1."}
 	}
 }
 
@@ -174,8 +185,9 @@ task cell2location_build_reference {
 		Int max_epochs_ref
 		Int preemptible
 
-		String raw_data_path #!UnusedDeclaration -- reserved for planned output-upload wiring, not yet implemented
-		String billing_project #!UnusedDeclaration -- reserved for planned output-upload wiring, not yet implemented
+		String raw_data_path
+		Array[Array[String]] workflow_info
+		String billing_project
 		String container_registry
 		String zones
 	}
@@ -195,12 +207,20 @@ task cell2location_build_reference {
 			--max-epochs-ref ~{max_epochs_ref} \
 			--output-dir . \
 			--promote
+
+		upload_outputs \
+			-b ~{billing_project} \
+			-d ~{raw_data_path} \
+			-i ~{write_tsv(workflow_info)} \
+			-o "~{ref_stem}_inf_aver.csv.gz" \
+			-o "stage1_ref_training_history.png" \
+			-o "~{ref_stem}_ref_build.timing.tsv"
 	>>>
 
 	output {
-		File inf_aver_csv_gz = "~{ref_stem}_inf_aver.csv.gz"
-		File stage1_ref_training_history_png = "stage1_ref_training_history.png"
-		File ref_build_timing_tsv = "~{ref_stem}_ref_build.timing.tsv"
+		String inf_aver_csv_gz = "~{raw_data_path}/~{ref_stem}_inf_aver.csv.gz"
+		String stage1_ref_training_history_png = "~{raw_data_path}/stage1_ref_training_history.png"
+		String ref_build_timing_tsv = "~{raw_data_path}/~{ref_stem}_ref_build.timing.tsv"
 	}
 
 	runtime {
@@ -213,6 +233,14 @@ task cell2location_build_reference {
 		gpuType: "nvidia-tesla-t4"
 		gpuCount: 1
 		zones: zones
+	}
+
+	parameter_meta {
+		raw_data_path: {help: "Raw data bucket path for Stage 1 outputs; location of raw bucket to upload task outputs to (`<raw_data_path_prefix>/build_reference/<cell2location_version>`)."}
+		workflow_info: {help: "UTC timestamp, workflow name, workflow version, and GitHub release; stored in the file-level manifest alongside each uploaded output."}
+		billing_project: {help: "GCP billing project for requester-pays bucket access."}
+		container_registry: {help: "Container registry hosting workflow Docker images."}
+		zones: {help: "GCP zones where compute will run."}
 	}
 }
 
@@ -230,8 +258,9 @@ task cell2location_cluster_visium {
 		Array[Float] leiden_res
 		Int preemptible
 
-		String raw_data_path #!UnusedDeclaration -- reserved for planned output-upload wiring, not yet implemented
-		String billing_project #!UnusedDeclaration -- reserved for planned output-upload wiring, not yet implemented
+		String raw_data_path
+		Array[Array[String]] workflow_info
+		String billing_project
 		String container_registry
 		String zones
 	}
@@ -252,12 +281,20 @@ task cell2location_cluster_visium {
 			--leiden-res ~{sep=" " leiden_res} \
 			--output-dir . \
 			--promote
+
+		upload_outputs \
+			-b ~{billing_project} \
+			-d ~{raw_data_path} \
+			-i ~{write_tsv(workflow_info)} \
+			-o "~{corrected_sample_id}.deconvoluted_clustered.h5ad" \
+			-o "~{corrected_sample_id}.deconvolution_clustering_metadata.csv.gz" \
+			-o "~{corrected_sample_id}.timing.tsv"
 	>>>
 
 	output {
-		File deconvoluted_adata_object = "~{corrected_sample_id}.deconvoluted_clustered.h5ad"
-		File deconvolution_metadata_csv = "~{corrected_sample_id}.deconvolution_clustering_metadata.csv.gz"
-		File timing_tsv = "~{corrected_sample_id}.timing.tsv"
+		String deconvoluted_adata_object = "~{raw_data_path}/~{corrected_sample_id}.deconvoluted_clustered.h5ad"
+		String deconvolution_metadata_csv = "~{raw_data_path}/~{corrected_sample_id}.deconvolution_clustering_metadata.csv.gz"
+		String timing_tsv = "~{raw_data_path}/~{corrected_sample_id}.timing.tsv"
 	}
 
 	runtime {
@@ -267,6 +304,14 @@ task cell2location_cluster_visium {
 		disks: "local-disk " + disk_size + " SSD"
 		preemptible: preemptible
 		zones: zones
+	}
+
+	parameter_meta {
+		raw_data_path: {help: "Raw data bucket path for Stage 3 outputs; location of raw bucket to upload task outputs to (`<raw_data_path_prefix>/cluster_visium/<cell2location_version>`)."}
+		workflow_info: {help: "UTC timestamp, workflow name, workflow version, and GitHub release; stored in the file-level manifest alongside each uploaded output."}
+		billing_project: {help: "GCP billing project for requester-pays bucket access."}
+		container_registry: {help: "Container registry hosting workflow Docker images."}
+		zones: {help: "GCP zones where compute will run."}
 	}
 }
 
@@ -285,8 +330,9 @@ task cell2location_deconvolute_visium {
 		Int max_epochs_spatial
 		Int preemptible
 
-		String raw_data_path #!UnusedDeclaration -- reserved for planned output-upload wiring, not yet implemented
-		String billing_project #!UnusedDeclaration -- reserved for planned output-upload wiring, not yet implemented
+		String raw_data_path
+		Array[Array[String]] workflow_info
+		String billing_project
 		String container_registry
 		String zones
 	}
@@ -308,13 +354,22 @@ task cell2location_deconvolute_visium {
 			--max-epochs-spatial ~{max_epochs_spatial} \
 			--output-dir . \
 			--promote
+
+		upload_outputs \
+			-b ~{billing_project} \
+			-d ~{raw_data_path} \
+			-i ~{write_tsv(workflow_info)} \
+			-o "~{corrected_sample_id}.deconvoluted.h5ad" \
+			-o "~{corrected_sample_id}.deconvolution_metadata.csv.gz" \
+			-o "~{corrected_sample_id}.stage2_spatial_training_history.png" \
+			-o "~{corrected_sample_id}.timing.tsv"
 	>>>
 
 	output {
-		File deconvoluted_adata_object = "~{corrected_sample_id}.deconvoluted.h5ad"
-		File deconvolution_metadata_csv = "~{corrected_sample_id}.deconvolution_metadata.csv.gz"
-		File stage2_spatial_training_history_png = "~{corrected_sample_id}.stage2_spatial_training_history.png"
-		File timing_tsv = "~{corrected_sample_id}.timing.tsv"
+		String deconvoluted_adata_object = "~{raw_data_path}/~{corrected_sample_id}.deconvoluted.h5ad"
+		String deconvolution_metadata_csv = "~{raw_data_path}/~{corrected_sample_id}.deconvolution_metadata.csv.gz"
+		String stage2_spatial_training_history_png = "~{raw_data_path}/~{corrected_sample_id}.stage2_spatial_training_history.png"
+		String timing_tsv = "~{raw_data_path}/~{corrected_sample_id}.timing.tsv"
 	}
 
 	runtime {
@@ -327,5 +382,13 @@ task cell2location_deconvolute_visium {
 		gpuType: "nvidia-tesla-t4"
 		gpuCount: 1
 		zones: zones
+	}
+
+	parameter_meta {
+		raw_data_path: {help: "Raw data bucket path for Stage 2 outputs; location of raw bucket to upload task outputs to (`<raw_data_path_prefix>/deconvolute_visium/<cell2location_version>`)."}
+		workflow_info: {help: "UTC timestamp, workflow name, workflow version, and GitHub release; stored in the file-level manifest alongside each uploaded output."}
+		billing_project: {help: "GCP billing project for requester-pays bucket access."}
+		container_registry: {help: "Container registry hosting workflow Docker images."}
+		zones: {help: "GCP zones where compute will run."}
 	}
 }

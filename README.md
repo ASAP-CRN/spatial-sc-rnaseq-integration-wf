@@ -86,7 +86,7 @@ An input template file can be found at [workflows/inputs.json](workflows/inputs.
 | Int? | n_neighbors | Neighbourhood size for clustering on deconvolved cell type fractions (Stage 3). [15] |
 | Array[Float]? | leiden_res | Leiden resolutions for clustering on deconvolved cell type fractions (Stage 3); one clustering per resolution. [0.2, 0.5, 1.0] |
 | String? | run_stages | Comma-separated subset of `{1,2,3}` — which stages to run. `"1"` builds the `inf_aver.csv.gz` reference; `"2"` loads it and deconvolutes spatial samples; `"3"` Leiden-clusters each sample's deconvolved cell type fractions. ['1,2,3'] |
-| String | cohort_raw_data_bucket_spatial_sc_rnaseq | Bucket to upload cohort deconvolution intermediate files to. |
+| String | cohort_raw_data_bucket_spatial_sc_rnaseq | Raw data bucket root; task outputs are uploaded under `<this>/workflow_execution/spatial_visium/deconvolution_analysis/<task_name>/<cell2location_version>`. |
 | String | container_registry | Container registry where workflow Docker images are hosted. |
 | String? | zones | GCP zones where compute will take place. ['us-central1-c us-central1-f'] |
 
@@ -166,27 +166,39 @@ Example inputs JSON fragment:
 
 ## Output structure
 
-- `workflow_run_timestamp`: format: `%Y-%m-%dT%H-%M-%SZ`
 - Outputs are written per spatial sample; each file is named with the `sample_id`
-- The `MANIFEST.tsv` file in the staging data bucket describes the file name, md5 hash, timestamp, workflow version, workflow name, and workflow release for the run used to generate each file in that directory
+- Each task uploads its own outputs (via `upload_outputs`) to a path scoped by task name and `cell2location_version`, not by run timestamp — this lets several 5-sample batches run in parallel against the same raw-bucket paths without colliding, since every uploaded file is already uniquely named by `sample_id` (Stage 2/3) or by the reference file's own name (Stage 1). A per-file `<filename>.meta.tsv` sidecar (name, md5 hash, timestamp, workflow version, workflow name, workflow release) is written alongside each uploaded file.
+- Stage 1's `inf_aver.csv.gz` is built once per reference file, not per sample; run `run_stages="1"` (or `"1,2,3"`) on a single submission, then `run_stages="2,3"` with `sc_rnaseq_reference_cell2location_model` pointed at that uploaded path for subsequent sample batches — do not re-run Stage 1 per batch.
+- Task outputs are typed `String` (GCS paths); the raw-bucket copy is the only durable artifact Cromwell tracks, since these outputs are uploaded directly by the task's own `command` block rather than delocalized by Cromwell.
 
 ### Raw data (intermediate files and final outputs for all runs of the workflow)
-
-The raw data bucket will contain *some* artifacts generated as part of workflow execution. Following successful workflow execution, the artifacts will also be copied into the staging bucket as final outputs.
-
-In the workflow, task outputs are either specified as `String` (final outputs, which will be copied in order to live in raw data buckets and staging buckets) or `File` (intermediate outputs that are periodically cleaned up, which will live in the cromwell-output bucket). This was implemented to reduce storage costs.
 
 ```bash
 asap-raw-{cohort}-{source}-{modality_flavour}-{context}
 └── workflow_execution
-    └── spatial_sc_rnaseq_integration
-        └── cohort_analysis
-            └── ${cohort_analysis_workflow_version}
-                └── ${workflow_run_timestamp}
-                    └── <per-sample deconvolution outputs>
+    └── spatial_visium
+        └── deconvolution_analysis
+            ├── build_reference
+            │   └── ${cell2location_version}
+            │       ├── ${ref_stem}_inf_aver.csv.gz
+            │       ├── stage1_ref_training_history.png
+            │       └── ${ref_stem}_ref_build.timing.tsv
+            ├── deconvolute_visium
+            │   └── ${cell2location_version}
+            │       ├── ${sample_id}.deconvoluted.h5ad
+            │       ├── ${sample_id}.deconvolution_metadata.csv.gz
+            │       ├── ${sample_id}.stage2_spatial_training_history.png
+            │       └── ${sample_id}.timing.tsv
+            └── cluster_visium
+                └── ${cell2location_version}
+                    ├── ${sample_id}.deconvoluted_clustered.h5ad
+                    ├── ${sample_id}.deconvolution_clustering_metadata.csv.gz
+                    └── ${sample_id}.timing.tsv
 ```
 
-### Staging data (intermediate workflow objects and final workflow outputs for the latest run of the workflow)
+### Staging data (not yet wired)
+
+The staging/curated tier below (`UploadFinalOutputs`/`WriteCohortSampleList`) is imported in `main.wdl` but not yet called from this workflow — only the raw-bucket upload described above is currently wired. The following describes the planned future state once that promotion step is added.
 
 Following QC by researchers, the objects in the dev or uat bucket are synced into the curated data buckets, maintaining the same file structure. Curated data buckets are named `asap-curated-{cohort}-{source}-{modality_flavour}-{context}` and `dataset_id` = `{cohort}-{source}-{modality_flavour}-{context}`.
 
