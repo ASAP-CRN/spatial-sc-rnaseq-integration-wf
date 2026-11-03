@@ -12,14 +12,14 @@
       "description": "",
       "tasks": {}
     },
-    "workflows/integration/integration.wdl": {
-      "key": "workflows/integration/integration.wdl",
+    "workflows/deconvolution/deconvolution.wdl": {
+      "key": "workflows/deconvolution/deconvolution.wdl",
       "name": "",
       "description": "",
       "tasks": {
         "cell2location_build_reference": {
           "key": "cell2location_build_reference",
-          "digest": "nlvcmjpeqiui64imxtcgnujj7fng4op5",
+          "digest": "",
           "tests": [
             {
               "inputs": {

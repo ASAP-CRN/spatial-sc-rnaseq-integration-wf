@@ -6,7 +6,7 @@ import "../structs.wdl"
 # Spatial input: spatial-transcriptomics-wf Visium per-sample post-QC H5ADs.
 # Deconvolution: Cell2location (GPU)
 
-workflow integration {
+workflow deconvolution {
 	meta {
 		name: "scRNA-seq based spatial deconvolution"
 		category: "Spatial Transcriptomics"

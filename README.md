@@ -47,7 +47,7 @@ Upstream inputs consumed per source:
 | sc-rnaseq-wf `cohort_analysis` (downsampled and/or supplemented with other sources) | cohort (reference) | `final_adata_object` |
 | spatial-transcriptomics-wf `spatial_visium preprocess` | per-sample, raw UMI counts, all genes--not only HVGs| `qc_adata_objects` (one per sample) |
 
-The deconvolution sub-workflow ([workflows/integration/integration.wdl](workflows/integration/integration.wdl)) runs as 3 independent WDL tasks, gated by `run_stages`:
+The deconvolution sub-workflow ([workflows/deconvolution/deconvolution.wdl](workflows/deconvolution/deconvolution.wdl)) runs as 3 independent WDL tasks, gated by `run_stages`:
 
 1. **Stage 1 — NB regression** (skipped if `sc_rnaseq_reference_cell2location_model` is provided): train a Negative Binomial regression model on the scRNA-seq reference to estimate per-cell-type gene expression signatures (`inf_aver`). Runs **once for all spatial samples**.
 2. **Stage 2 — Spatial mapping**: run Cell2location to map cell type abundances onto Visium spots. Runs once **per Visium sample**, scattered in parallel. Writes `{sample_id}.deconvoluted.h5ad` / `{sample_id}.deconvolution_metadata.csv.gz`.

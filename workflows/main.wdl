@@ -20,7 +20,7 @@ version 1.0
 import "structs.wdl"
 import "../wf-common/wdl/tasks/get_workflow_metadata.wdl" as GetWorkflowMetadata
 import "../wf-common/wdl/tasks/upload_final_outputs.wdl" as UploadFinalOutputs #!UnusedImport -- reserved for planned output-upload wiring, not yet implemented
-import "integration/integration.wdl" as Integration
+import "deconvolution/deconvolution.wdl" as Deconvolution
 
 workflow spatial_sc_rnaseq_integration {
 	meta {
@@ -55,7 +55,7 @@ workflow spatial_sc_rnaseq_integration {
 		Int n_neighbors = 15
 		Array[Float] leiden_res = [0.2, 0.5, 1.0]
 
-		# Stages to run; see Integration.integration
+		# Stages to run; see Deconvolution.deconvolution
 		String run_stages = "1,2,3"
 		Int preemptible = 3
 
@@ -76,7 +76,7 @@ workflow spatial_sc_rnaseq_integration {
 	}
 	Array[SpatialVisiumSample] visium_samples = flatten(project_samples)
 
-	call Integration.integration {
+	call Deconvolution.deconvolution {
 		input:
 			sc_rnaseq_reference_adata = sc_rnaseq_reference_adata,
 			sc_rnaseq_reference_cell2location_model = sc_rnaseq_reference_cell2location_model,
@@ -100,18 +100,18 @@ workflow spatial_sc_rnaseq_integration {
 
 	output {
 		# Flat over all samples; null when run_stages excludes Stage 2.
-		Array[File?] visium_deconvoluted_adata_objects = integration.visium_deconvoluted_adata_objects
-		Array[File?] visium_deconvolution_metadata_csvs = integration.visium_deconvolution_metadata_csvs
-		Array[File?] visium_deconvolution_training_history_pngs = integration.visium_deconvolution_training_history_pngs
-		Array[File?] visium_deconvolution_timing_tsvs = integration.visium_deconvolution_timing_tsvs
+		Array[File?] visium_deconvoluted_adata_objects = deconvolution.visium_deconvoluted_adata_objects
+		Array[File?] visium_deconvolution_metadata_csvs = deconvolution.visium_deconvolution_metadata_csvs
+		Array[File?] visium_deconvolution_training_history_pngs = deconvolution.visium_deconvolution_training_history_pngs
+		Array[File?] visium_deconvolution_timing_tsvs = deconvolution.visium_deconvolution_timing_tsvs
 		# Flat over all samples; null when run_stages excludes Stage 3.
-		Array[File?] visium_deconvoluted_clustered_adata_objects = integration.visium_deconvoluted_clustered_adata_objects
-		Array[File?] visium_deconvolution_clustering_metadata_csvs = integration.visium_deconvolution_clustering_metadata_csvs
-		Array[File?] visium_deconvolution_clustering_timing_tsvs = integration.visium_deconvolution_clustering_timing_tsvs
+		Array[File?] visium_deconvoluted_clustered_adata_objects = deconvolution.visium_deconvoluted_clustered_adata_objects
+		Array[File?] visium_deconvolution_clustering_metadata_csvs = deconvolution.visium_deconvolution_clustering_metadata_csvs
+		Array[File?] visium_deconvolution_clustering_timing_tsvs = deconvolution.visium_deconvolution_clustering_timing_tsvs
 		# Built once; null when run_stages excludes Stage 1.
-		File? sc_rnaseq_reference_inf_aver_csv_gz = integration.sc_rnaseq_reference_inf_aver_csv_gz
-		File? sc_rnaseq_reference_training_history_png = integration.sc_rnaseq_reference_training_history_png
-		File? sc_rnaseq_reference_build_timing_tsv = integration.sc_rnaseq_reference_build_timing_tsv
+		File? sc_rnaseq_reference_inf_aver_csv_gz = deconvolution.sc_rnaseq_reference_inf_aver_csv_gz
+		File? sc_rnaseq_reference_training_history_png = deconvolution.sc_rnaseq_reference_training_history_png
+		File? sc_rnaseq_reference_build_timing_tsv = deconvolution.sc_rnaseq_reference_build_timing_tsv
 	}
 
 	parameter_meta {
