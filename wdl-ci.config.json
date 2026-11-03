@@ -167,42 +167,6 @@
           "tests": []
         }
       }
-    },
-    "spatial-sc-rnaseq-integration-wdl-ci-custom-test-dir/image_validator.wdl": {
-      "key": "spatial-sc-rnaseq-integration-wdl-ci-custom-test-dir/image_validator.wdl",
-      "name": "",
-      "description": "",
-      "tasks": {
-        "image_validator": {
-          "key": "image_validator",
-          "digest": "",
-          "tests": []
-        }
-      }
-    },
-    "spatial-sc-rnaseq-integration-wdl-ci-custom-test-dir/check_parquet.wdl": {
-      "key": "spatial-sc-rnaseq-integration-wdl-ci-custom-test-dir/check_parquet.wdl",
-      "name": "",
-      "description": "",
-      "tasks": {
-        "check_parquet": {
-          "key": "check_parquet",
-          "digest": "",
-          "tests": []
-        }
-      }
-    },
-    "spatial-sc-rnaseq-integration-wdl-ci-custom-test-dir/check_zip.wdl": {
-      "key": "spatial-sc-rnaseq-integration-wdl-ci-custom-test-dir/check_zip.wdl",
-      "name": "",
-      "description": "",
-      "tasks": {
-        "check_zip": {
-          "key": "check_zip",
-          "digest": "",
-          "tests": []
-        }
-      }
     }
   },
   "engines": {
