@@ -19,7 +19,7 @@
       "tasks": {
         "cell2location_build_reference": {
           "key": "cell2location_build_reference",
-          "digest": "",
+          "digest": "nlvcmjpeqiui64imxtcgnujj7fng4op5",
           "tests": [
             {
               "inputs": {
