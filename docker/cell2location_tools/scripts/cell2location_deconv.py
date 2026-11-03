@@ -53,6 +53,8 @@ import numpy as np
 import pandas as pd
 import anndata as ad
 import scanpy as sc
+import scvi
+import torch
 from cell2location.models import Cell2location, RegressionModel
 from scipy.sparse import issparse
 
@@ -79,6 +81,7 @@ _REF_BATCH_SIZE  = 2_500    # posterior sampling batch size (tutorial default)
 _TRAIN_SIZE      = 1        # tutorial default
 
 _ACCELERATOR     = get_accelerator()  # auto-selects: "gpu" (CUDA) > "mps" (Apple Silicon) > "cpu"
+_SEED            = 0  # seed for same machine system. Note that "gpu" vs. "mps" still introduces non-determinism.
 
 _EXPORT_POSTERIOR_SUBPROCESS_SCRIPT = Path(__file__).resolve().parent / "_export_posterior_subprocess.py"
 
@@ -830,6 +833,12 @@ def _validate_run_stages(
 
 def main() -> None:
     args = _parse_args()
+
+    # Fix seed for same system. VM cuda vs. Mac mps still can have differences.
+    scvi.settings.seed = args.seed
+    if torch.backends.mps.is_available():
+        torch.mps.manual_seed(args.seed)
+
     run_stages = _validate_run_stages(
         run_stages=args.run_stages,
         sc_rnaseq_reference_adata=args.sc_rnaseq_reference_adata,
@@ -888,7 +897,10 @@ def _parse_args() -> argparse.Namespace:
     general.add_argument("--write-h5ad",                  action=argparse.BooleanOptionalAction, default=True,
         help="Write the per-sample `.h5ad` output in addition to the metadata CSV.\n"
              "Use --no-write-h5ad to write only the metadata CSV. Has no effect in Stage-1-only mode.\n"
-             "Default: True")
+             "Default: True"),
+    general.add_argument("--seed",                        type=int, default=_SEED,
+        help="Random seed for same system torch/numpy/scvi-tools training.\n"
+             f"Default: {_SEED}")
 
     stage1 = parser.add_argument_group("Stage 1 — NB regression (reference signatures)")
     stage1.add_argument("--sc-rnaseq-reference-adata",    default=None,
