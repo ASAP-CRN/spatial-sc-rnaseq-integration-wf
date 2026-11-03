@@ -306,3 +306,34 @@ Docker images can be built using the [`build_docker_images`](https://github.com/
 [`wdl-ci`](https://github.com/DNAstack/wdl-ci) provides tools to validate and test workflows and tasks written in [Workflow Description Language (WDL)](https://github.com/openwdl/wdl). In addition to the tests packaged in `wdl-ci`, the [spatial-sc-rnaseq-integration-wdl-ci-custom-test-dir](./spatial-sc-rnaseq-integration-wdl-ci-custom-test-dir) is a directory containing custom WDL-based tests that are used to test workflow tasks. `wdl-ci` in this repository is set up to run on pull request.
 
 In general, `wdl-ci` will use inputs provided in the [wdl-ci.config.json](./wdl-ci.config.json) and compare current outputs and validated outputs based on changed tasks/workflows to ensure outputs are still valid by meeting the criteria in the specified tests. For example, if the `cell2location_deconvolute_visium` task was changed, then this task would be submitted and that output would be considered the "current output". When inspecting the deconvoluted AnnData object, there is a test specified in the [wdl-ci.config.json](./wdl-ci.config.json) called `check_hdf5`. The test will compare the "current output" and "validated output" (provided in the [wdl-ci.config.json](./wdl-ci.config.json)) to make sure that the `.h5ad` file is still a valid HDF5 file.
+
+* GitHub will run the CI using GitHub actions by default, unless the commit message includes `[skip ci]`.
+* Alternatively, it can be submitted using `1Password`'s CLI in two steps:
+
+1. Set an *.env file with the following secrets:
+```
+WALLET_CLIENT_ID
+WALLET_CLIENT_SECRET
+WALLET_URL
+WORKBENCH_EWES_REFRESH_TOKEN
+WORKBENCH_EWES_URL
+WORKBENCH_NAMESPACE
+WORKBENCH_WORKFLOW_SERVICE_REFRESH_TOKEN
+WORKBENCH_WORKFLOW_SERVICE_URL
+WDL_CI_CUSTOM_TEST_WDL_DIR
+```
+  2. A wrapper *sh script.
+```
+#!/usr/bin/env bash
+set -euo pipefail
+
+cd /path/to/spatial-sc-rnaseq-integration-wf
+
+WDL_CI=/path/to/wdl-ci
+
+"$WDL_CI" lint
+"$WDL_CI" detect-changes
+"$WDL_CI" submit
+"$WDL_CI" monitor --update-digests
+"$WDL_CI" cleanup
+```
