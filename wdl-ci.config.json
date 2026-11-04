@@ -19,7 +19,7 @@
       "tasks": {
         "cell2location_build_reference": {
           "key": "cell2location_build_reference",
-          "digest": "nlvcmjpeqiui64imxtcgnujj7fng4op5",
+          "digest": "v6qc46gx2n6zjuyxhqwsssonwfpb4enb",
           "tests": [
             {
               "inputs": {
@@ -50,7 +50,7 @@
         },
         "cell2location_deconvolute_visium": {
           "key": "cell2location_deconvolute_visium",
-          "digest": "jql74uykfxalv7hjki4ffdkdz3kozcfj",
+          "digest": "hm2cwpyh24qwicsmxxjxpglwk62ohj4m",
           "tests": [
             {
               "inputs": {
@@ -90,7 +90,7 @@
         },
         "cell2location_cluster_visium": {
           "key": "cell2location_cluster_visium",
-          "digest": "rh3tntzp5wghj4g3lvpwmhxpsmliz7ga",
+          "digest": "cbxqk43hv3u34tdrjjnkakuxna3dyusp",
           "tests": [
             {
               "inputs": {
