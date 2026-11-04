@@ -78,12 +78,12 @@ The `5.0.0/2026-10-19T14-59-48Z/asap-cohort.final_metadata.csv.gz` file has thre
 In the table below:
 * `ASAP 5.0.0`: number and percent of all ASAP cells labeled as DA subtypes in sc-rnaseq-wf v5.0.0 C_scANVI
 * `Kamath 200`: number and percent of Kamath cells used in Strategy 1 (at least 200 cells per cell type)
-* `Kamath 200`: number and percent of all Kamath cells (file `kamath_merged_da_all_non_da_13000_preQC.h5ad`)
+* `Kamath all`: number and percent of all Kamath cells (file `kamath_merged_da_all_non_da_13000_preQC.h5ad`)
 * SOX6_DDT+SOX6_AGTR1 alone make up 88% in ASAP vs. ~49% in Kamath's true distribution
 * SOX6_DDT is 4x higher in ASAP than in Kamath
 * CALB1_* subtypes nearly disappeare in ASAP
 
-| subtype | n ASAP 5.0.0 | Kamath 200 | Kamath all |
+| subtype | ASAP 5.0.0 | Kamath 200 | Kamath all |
 |:---|:---|:---|:---|
 | SOX6_AGTR1 | 4975 (43.6%) | 2096 (32.1%) | 8498 (38.5%) |
 | SOX6_PART1 | 173 (1.5%) | 765 (11.7%) | 2646 (12.0%) |
@@ -98,8 +98,10 @@ In the table below:
 | **Total** | **11406 (100.0%)** | **6530 (100.0%)** | **22048 (100.0%)** |
 
 ## Summary
-* As shown in `notebooks/compare_reference.ipynb`, both Strategies 1 and 3 worked better than Strategy 2.
-* **Hence, Strategy 3 was used for the Production run with ASAP Visium spatial samples.**
+* As shown in `notebooks/compare_reference.ipynb`, all three strategies allowed successful deconvolution of spatial spots.
+![Strategies agreement heatmaps](docs/strategies_1_2_3_agreement_heatmaps.png "Agreement heatmaps")
+* Since 3 included all Kamath cell types and allows a wider benchmark for all its cell types, it was used for Production runs.
+
 
 ## Directory contents, inputs, and outputs (StrategyN = reference building strategy number {1-3})
 
