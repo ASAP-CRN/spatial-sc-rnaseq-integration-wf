@@ -1,8 +1,8 @@
 # spatial-sc-rnaseq-integration-wf
 
-Repo for testing and developing a workflow that integrates single-cell/single-nucleus RNA-seq data with spatial transcriptomics data (Nanostring GeoMx and 10x Visium).
+Repo for testing and developing a workflow that integrates single-cell/single-nucleus RNA-seq data with spatial transcriptomics data. This version (v1.0.0) covers deconvolution of 10x Visium data only.
 
-This workflow consumes outputs from two upstream sibling workflows:
+This workflow consumes outputs from two upstream ASAP workflows:
 * [sc-rnaseq-wf](https://github.com/ASAP-CRN/sc-rnaseq-wf)
 * [spatial-transcriptomics-wf](https://github.com/ASAP-CRN/spatial-transcriptomics-wf)
 
@@ -12,10 +12,10 @@ Common workflows, tasks, utility scripts, and docker images reused across harmon
 # Table of contents
 
 - [Workflows](#workflows)
-    - [Integration](#integration)
+    - [Spatial deconvolution](#spatial-deconvolution)
         - [Deconvolution methods](#deconvolution-methods)
 - [Inputs](#inputs)
-    - [Structs](#structs)
+    - [Structures](#structures)
     - [Generating the inputs JSON](#generating-the-inputs-json)
 - [Outputs](#outputs)
     - [Output structure](#output-structure)
@@ -25,7 +25,7 @@ Common workflows, tasks, utility scripts, and docker images reused across harmon
 
 # Workflows
 
-Workflows are defined in [the `workflows` directory](workflows). The Python scripts which process the data at each stage can be found in [the docker/integration_tools/scripts directory](docker/integration_tools/scripts).
+Workflows are defined in [the `workflows` directory](./workflows/). The Python scripts which process the data at each stage can be found in the `docker/<method>_tools/scripts` directories.
 
 Workflow name:
 - `spatial_sc_rnaseq_integration`
@@ -34,40 +34,37 @@ Workflow name:
 
 **Input template**: [workflows/inputs.json](workflows/inputs.json)
 
-## Integration
+## Spatial deconvolution
 
-The integration workflow receives processed AnnData objects (`.h5ad`) from the upstream sibling workflows (i.e. does not re-run CellRanger, SpaceRanger, or cell type labelling).
+The deconvolution workflow receives processed AnnData objects (`.h5ad`) from the upstream sibling workflows (i.e. does not re-run CellRanger, SpaceRanger, or cell type labelling).
 
-The scRNA-seq cohort adata is used as a **reference** for all spatial samples. The spatial side is handled **per sample**: each spatial sample adata carrying raw UMI counts is used before any batch correction, so it can be harmonized independently against the scRNA-seq reference. Samples from all projects are flattened and integrated in parallel.
+The scRNA-seq cohort adata is used as a **reference** for all spatial samples. The spatial side is handled **per sample**: each spatial sample adata carrying raw UMI counts is used before any batch correction, so it can be harmonized independently against the scRNA-seq reference. Samples from all projects are flattened and deconvoluted in parallel.
 
 Upstream inputs consumed per source:
 
 | Source workflow | Level | Output consumed |
 | :- | :- | :- |
-| sc-rnaseq-wf `cohort_analysis` | cohort (reference) | `final_adata_object`, `final_metadata_csv`, `scanvi_cell_types_parquet` |
+| sc-rnaseq-wf `cohort_analysis` (downsampled and/or supplemented with other sources) | cohort (reference) | `final_adata_object` |
 | spatial-transcriptomics-wf `spatial_visium preprocess` | per-sample, raw UMI counts | `qc_adata_objects` (one per sample) |
-| spatial-transcriptomics-wf `spatial_geomx process_to_adata` | per-sample | `processed_adata_objects` (one per sample) |
 
-The integration sub-workflow ([workflows/integration/integration.wdl](workflows/integration/integration.wdl)) performs a single step per sample:
+The deconvolution sub-workflow ([workflows/integration/integration.wdl](workflows/integration/integration.wdl)) performs the following steps per Visium sample:
 
-1. **Integrate** — run the integration method on the per-sample spatial adata against the scRNA-seq cohort reference (`integrate_sample` task).
+1. **Stage 1 — NB regression** (skipped if `sc_rnaseq_reference_cell2location_model` is provided): train a Negative Binomial regression model on the scRNA-seq reference to estimate per-cell-type gene expression signatures (`inf_aver`).
+2. **Stage 2 — Spatial mapping**: run Cell2location to map cell type abundances onto Visium spots.
+3. **Stage 3 — Downstream analysis**: PCA → neighbours → UMAP → Leiden clustering on deconvoluted cell type abundance vectors (not on gene expression, like `spatial-transcriptomics-wf` does).
 
-All samples (across all projects) are scattered flat and integrated in parallel.
+All samples (across all projects) are scattered flat and deconvoluted in parallel.
 
 ### Deconvolution methods
 
-Cell type deconvolution is performed by running two complementary methods per sample, providing both a Python and an R solution:
-
-| Method | Reference | Language | Docker image |
-| :- | :- | :- | :- |
-| [Cell2location](https://github.com/BayraktarLab/cell2location), Bayesian hierarchical model | [Kleshchevnikov *et al.*, *Nat Biotechnol* 2022](https://pubmed.ncbi.nlm.nih.gov/35027729/) | Python — GPU-accelerated | `cell2location_tools` |
-| [RCTD](https://github.com/dmcable/spacexr), statistical mixture model | [Cable *et al.*, *Nat Biotechnol* 2022](https://pubmed.ncbi.nlm.nih.gov/33603203/) | R — CPU-only | `rctd_tools` |
+| Method | Reference | Language | Docker image | Status |
+| :- | :- | :- | :- | :- |
+| [Cell2location](https://github.com/BayraktarLab/cell2location), Bayesian hierarchical model | [Kleshchevnikov *et al.*, *Nat Biotechnol* 2022](https://pubmed.ncbi.nlm.nih.gov/35027729/) | Python — GPU-accelerated | `cell2location_tools` | Being implemented |
+| [RCTD](https://github.com/dmcable/spacexr), statistical mixture model | [Cable *et al.*, *Nat Biotechnol* 2022](https://pubmed.ncbi.nlm.nih.gov/33603203/) | R — CPU-only | `rctd_tools` | To be implemented |
 
 Both methods use the scRNA-seq cohort as a reference to infer cell type composition per spot. Cell2location estimates absolute cell abundances per spot and provides posterior uncertainty for each prediction. RCTD estimates cell type proportions per spot and is fast and robust across tissue types. These methods were reported as top-performers in benchmarks for the task ([Li *et al.*, *Nat Methods* 2022](https://pubmed.ncbi.nlm.nih.gov/35577954/); [Gillespie *et al.*, *Cells* 2025](https://pubmed.ncbi.nlm.nih.gov/40710313/)).
 
-Both methods are designed for spot-based spatial transcriptomics and are applied to Visium samples. GeoMx ROI data may also be processed where ROI size and design make spot-level deconvolution appropriate.
-
-Cell2location is the primary method and requires a GPU. RCTD serves as a robust fallback: because Cell2location can fail on large datasets due to GPU memory constraints, running both methods in parallel ensures deconvolution outputs are always available. Since each method runs as an independent WDL task, GPU resources are provisioned only for Cell2location, keeping RCTD on lower-cost CPU instances.
+Cell2location is the primary method and requires a GPU. RCTD will serve as a robust fallback when implemented: because Cell2location can fail on large datasets due to GPU memory constraints, running both methods in parallel ensures deconvolution outputs are always available. Since each method runs as an independent WDL task, GPU resources are provisioned only for Cell2location, keeping RCTD on lower-cost CPU instances.
 
 
 # Inputs
@@ -76,120 +73,71 @@ An input template file can be found at [workflows/inputs.json](workflows/inputs.
 
 | Type | Name | Description |
 | :- | :- | :- |
-| String | cohort_id | Name of the cohort; used to name output files. |
-| Array[[ScRnaseqProject](#scrnaseqproject)] | sc_rnaseq_projects | Processed cohort outputs from sc-rnaseq-wf used as the integration reference. Typically one entry representing the cross-team cohort. |
-| Array[[SpatialVisiumProject](#spatialvisiumproject)]? | spatial_visium_projects | Processed project-level outputs from spatial-transcriptomics-wf (Visium) to integrate per sample. [[ ]] |
-| Array[[SpatialGeomxProject](#spatialgeomxproject)]? | spatial_geomx_projects | Processed project-level outputs from spatial-transcriptomics-wf (GeoMx) to integrate per sample. [[ ]] |
-| String? | batch_key | Key in AnnData object for batch information. ['batch_id'] |
-| Int? | n_top_genes | Number of highly variable genes to keep. [3000] |
+| File | sc_rnaseq_reference_adata | scRNA-seq reference AnnData; used to deconvolute all spatial samples. Typically a downsampled version of sc-rnaseq-wf `cohort_analysis`'s `final_adata_object`, either alone or supplemented with other sources, such as Kamath/Siletti. |
+| Array[[`SpatialVisiumProject`](#spatialvisiumproject)]? | spatial_visium_projects | Processed project-level outputs from spatial-transcriptomics-wf (Visium) to deconvolute per sample. [[ ]] |
+| File? | sc_rnaseq_reference_cell2location_model | Pre-computed `<ref_stem>_inf_aver.csv.gz` from a previous run. When provided, Stage 1 NB regression is skipped for all samples. When omitted, Stage 1 is trained from `sc_rnaseq_reference_adata`. |
+| String? | batch_key | Column in reference .obs used as batch covariate in the NB regression model. ['batch_id'] |
+| String? | cell_type_key | Column in reference .obs to use as the cell type label. ['cell_type_pred'] |
+| Int? | n_cells_per_spot | Cell2location N_cells_per_location prior; 8 for brain Visium. [8] |
+| Int? | detection_alpha | Cell2location detection rate prior (20–200); higher values assume low technical variability. [100] |
+| Int? | max_epochs_ref | NB regression (Stage 1) training epochs. [250] |
+| Int? | max_epochs_spatial | Cell2location spatial mapping (Stage 2) training epochs. [30000] |
 | Int? | n_comps | Number of principal components to compute. [30] |
 | Int? | n_neighbors | Size of local neighborhood used for manifold approximation. [15] |
-| Array[Float]? | leiden_res | Leiden resolutions controlling the coarseness of clustering. [0.05, 0.1, 0.2, 0.4] |
-| String | cohort_raw_data_bucket_spatial_sc_rnaseq | Bucket to upload cohort integration intermediate files to. |
-| Array[String] | cohort_staging_data_buckets_spatial_sc_rnaseq | Buckets to upload cohort integration final outputs to. |
+| Array[Float]? | leiden_res | Leiden resolutions controlling the coarseness of clustering. [0.2, 0.5, 1.0] |
+| String | cohort_raw_data_bucket_spatial_sc_rnaseq | Bucket to upload cohort deconvolution intermediate files to. |
 | String | container_registry | Container registry where workflow Docker images are hosted. |
 | String? | zones | GCP zones where compute will take place. ['us-central1-c us-central1-f'] |
 
-## Structs
+#### Note
+For script testing, these inputs can be used:
+- sc-RNAseq reference: `gs://asap-wdl-ci/workflow_execution/spatial-sc-rnaseq-integration-wf/reference_building/reference_h5ad/deconvolution_reference_30k.h5ad`
+- Spatial: `gs://asap-wdl-ci/workflow_execution/spatial_visium/preprocess/counts_to_adata/1.0.0/ASAP_PMBDS_000003_s007_Rep1.cleaned_unfiltered.h5ad`
 
-### ScRnaseqProject
+## Structures
 
-Wraps the final cohort-level outputs of [sc-rnaseq-wf](https://github.com/ASAP-CRN/sc-rnaseq-wf) `cohort_analysis`. Used as the scRNA-seq reference for all spatial samples.
+### `SpatialVisiumProject`
 
-| Type | Name | Description |
-| :- | :- | :- |
-| String | asap_team_id | ASAP-generated unique identifier for team; used for naming output files. |
-| String | asap_dataset_id | ASAP-generated unique identifier for dataset; used for metadata. |
-| String | asap_dataset_doi_url | ASAP-generated Zenodo DOI URL referencing the dataset. |
-| File | final_adata_object | `cohort_analysis.final_adata_object` (.h5ad) — Harmony-integrated, cell-type-annotated AnnData. |
-| File | final_metadata_csv | `cohort_analysis.final_metadata_csv` — per-cell metadata table. |
-| File | scanvi_cell_types_parquet | `cohort_analysis.scanvi_cell_types_parquet` — scANVI cell type predictions. |
-| String | raw_data_bucket | Raw data bucket; intermediate output files are stored here. |
-| Array[String] | staging_data_buckets | Staging data buckets; final outputs are stored here. |
-
-### SpatialVisiumProject
-
-Groups per-sample Visium adatas from [spatial-transcriptomics-wf](https://github.com/ASAP-CRN/spatial-transcriptomics-wf) `spatial_visium preprocess` for a single team/dataset. Samples are flattened across projects and integrated independently.
+Groups per-sample Visium adatas from [spatial-transcriptomics-wf](https://github.com/ASAP-CRN/spatial-transcriptomics-wf) `spatial_visium preprocess` for a single team/dataset. Samples are flattened across projects and deconvoluted independently.
 
 | Type | Name | Description |
 | :- | :- | :- |
 | String | asap_team_id | ASAP-generated unique identifier for team; used for naming output files. |
 | String | asap_dataset_id | ASAP-generated unique identifier for dataset; used for metadata. |
 | String | asap_dataset_doi_url | ASAP-generated Zenodo DOI URL referencing the dataset. |
-| Array[[SpatialVisiumSample](#spatialvisiumsample)] | samples | Per-sample adatas (raw UMI counts, pre-Harmony); each sample is integrated independently. |
+| Array[[`SpatialVisiumSample`](#spatialvisiumsample)] | samples | Per-sample adatas; each sample is deconvoluted independently. |
 | String | raw_data_bucket | Raw data bucket; intermediate output files are stored here. |
-| Array[String] | staging_data_buckets | Staging data buckets; final outputs are stored here. |
 
-### SpatialVisiumSample
+### `SpatialVisiumSample`
 
-One Visium sample. Source: `spatial_visium preprocess.qc_adata_objects` from [spatial-transcriptomics-wf](https://github.com/ASAP-CRN/spatial-transcriptomics-wf). The adata carries post-QC raw UMI counts before Harmony batch correction.
+One Visium sample. Source: `spatial_visium preprocess.qc_adata_objects` from [spatial-transcriptomics-wf](https://github.com/ASAP-CRN/spatial-transcriptomics-wf). The adata carries post-QC raw UMI counts (i.e. from `workflow_execution/spatial_visium/preprocess/counts_to_adata/`).
 
 | Type | Name | Description |
 | :- | :- | :- |
 | String | sample_id | Sample identifier; used to name output files. |
 | File | qc_adata_object | `spatial_visium preprocess.qc_adata_objects` (.h5ad) — per-sample, post-QC, raw UMI counts. |
 
-### SpatialGeomxProject
-
-Groups per-sample GeoMx adatas from [spatial-transcriptomics-wf](https://github.com/ASAP-CRN/spatial-transcriptomics-wf) `spatial_geomx process_to_adata` for a single team/dataset. Samples are flattened across projects and integrated independently.
-
-| Type | Name | Description |
-| :- | :- | :- |
-| String | asap_team_id | ASAP-generated unique identifier for team; used for naming output files. |
-| String | asap_dataset_id | ASAP-generated unique identifier for dataset; used for metadata. |
-| String | asap_dataset_doi_url | ASAP-generated Zenodo DOI URL referencing the dataset. |
-| Array[[SpatialGeomxSample](#spatialgeomxsample)] | samples | Per-sample adatas; each sample is integrated independently. |
-| String | raw_data_bucket | Raw data bucket; intermediate output files are stored here. |
-| Array[String] | staging_data_buckets | Staging data buckets; final outputs are stored here. |
-
-### SpatialGeomxSample
-
-One GeoMx sample. Source: `spatial_geomx process_to_adata.processed_adata_objects` from [spatial-transcriptomics-wf](https://github.com/ASAP-CRN/spatial-transcriptomics-wf). The adata carries Q3-normalized counts (75th-percentile within-sample normalization), before Harmony cross-sample batch correction, which runs later in `spatial_geomx cohort_analysis`.
-
-| Type | Name | Description |
-| :- | :- | :- |
-| String | sample_id | Sample identifier; used to name output files. |
-| File | processed_adata_object | `spatial_geomx process_to_adata.processed_adata_objects` (.h5ad) — per-sample, Q3-normalized, pre-Harmony. |
-
 ## Generating the inputs JSON
 
-The inputs JSON may be generated manually. Because this workflow consumes processed outputs from upstream sibling workflows rather than raw FASTQ files, the `sc_rnaseq_projects`, `spatial_visium_projects`, and `spatial_geomx_projects` arrays must reference GCS paths to the `.h5ad` and `.parquet` files already produced by those workflows.
+The inputs JSON may be generated manually. Because this workflow consumes processed outputs from upstream sibling workflows rather than raw FASTQ files, `sc_rnaseq_reference_adata` and the `spatial_visium_projects` array must reference GCS paths to the `.h5ad` files already produced by those workflows.
 
 The relevant GCS paths follow the staging bucket structure of the sibling workflows:
 
 ```
-# sc-rnaseq-wf outputs (cross-team cohort)
+# sc-rnaseq-wf outputs (downsampled cohort H5AD) -- `sc_rnaseq_reference_adata` may instead
+# point to a custom-built reference (e.g. supplemented with other sources, such as Kamath/Siletti).
 asap-dev-{cohort}-pmdbs-sn-rnaseq-{context}/pmdbs_sc_rnaseq/release/${crn_release_version}/cohort_analysis/
   ${cohort_id}.final.h5ad
-  ${cohort_id}.final_metadata.csv
-  ${cohort_id}.scanvi_cell_types.parquet
 
-# spatial-transcriptomics-wf Visium outputs — per-sample pre-QC adatas (raw UMI counts)
-asap-dev-{team-xxyy}-pmdbs-spatial-visium-{context}/spatial_visium/release/${crn_release_version}/preprocess/
-  ${sample_id}.qc.h5ad   # one file per sample
-
-# spatial-transcriptomics-wf GeoMx outputs — per-sample processed adatas
-asap-dev-{team-xxyy}-pmdbs-spatial-geomx-{context}/spatial_geomx/release/${crn_release_version}/process_to_adata/
-  ${sample_id}.processed.h5ad   # one file per sample
+# spatial-transcriptomics-wf Visium outputs — per-sample post-QC adatas (raw UMI counts)
+asap-raw-{team-xxyy}-pmdbs-spatial-visium-{context}/spatial_visium/release/${crn_release_version}/preprocess/counts_to_adata/${sample_id}.qc.h5ad   # one file per sample
 ```
 
 Example inputs JSON fragment:
 
 ```json
 {
-  "spatial_sc_rnaseq_integration.cohort_id": "asap-cohort",
-  "spatial_sc_rnaseq_integration.sc_rnaseq_projects": [
-    {
-      "asap_team_id": "cohort",
-      "asap_dataset_id": "DS_PMDBS_XXXX",
-      "asap_dataset_doi_url": "https://doi.org/...",
-      "final_adata_object": "gs://asap-dev-cohort-.../cohort_analysis/asap-cohort.final.h5ad",
-      "final_metadata_csv": "gs://asap-dev-cohort-.../cohort_analysis/asap-cohort.final_metadata.csv",
-      "scanvi_cell_types_parquet": "gs://asap-dev-cohort-.../cohort_analysis/asap-cohort.scanvi_cell_types.parquet",
-      "raw_data_bucket": "gs://asap-raw-cohort-...",
-      "staging_data_buckets": ["gs://asap-dev-cohort-..."]
-    }
-  ],
+  "spatial_sc_rnaseq_integration.sc_rnaseq_reference_adata": "gs://asap-raw-cohort-.../cohort_analysis/asap-cohort.final.h5ad",
   "spatial_sc_rnaseq_integration.spatial_visium_projects": [
     {
       "asap_team_id": "team-xxyy",
@@ -198,20 +146,17 @@ Example inputs JSON fragment:
       "samples": [
         {
           "sample_id": "ASAP_PMDBS_000001_s001_rep1",
-          "qc_adata_object": "gs://asap-dev-team-xxyy-.../preprocess/ASAP_PMDBS_000001_s001_rep1.qc.h5ad"
+          "qc_adata_object": "gs://asap-raw-team-xxyy-.../preprocess/counts_to_adata/ASAP_PMDBS_000001_s001_rep1.qc.h5ad"
         },
         {
           "sample_id": "ASAP_PMDBS_000002_s001_rep1",
-          "qc_adata_object": "gs://asap-dev-team-xxyy-.../preprocess/ASAP_PMDBS_000002_s001_rep1.qc.h5ad"
+          "qc_adata_object": "gs://asap-raw-team-xxyy-.../preprocess/counts_to_adata/ASAP_PMDBS_000002_s001_rep1.qc.h5ad"
         }
       ],
-      "raw_data_bucket": "gs://asap-raw-team-xxyy-...",
-      "staging_data_buckets": ["gs://asap-dev-team-xxyy-..."]
+      "raw_data_bucket": "gs://asap-raw-team-xxyy-..."
     }
   ],
-  "spatial_sc_rnaseq_integration.spatial_geomx_projects": [],
   "spatial_sc_rnaseq_integration.cohort_raw_data_bucket_spatial_sc_rnaseq": "gs://asap-raw-cohort-...",
-  "spatial_sc_rnaseq_integration.cohort_staging_data_buckets_spatial_sc_rnaseq": ["gs://asap-dev-cohort-..."],
   "spatial_sc_rnaseq_integration.container_registry": "us-central1-docker.pkg.dev/dnastack-asap-parkinsons/workflow-images"
 }
 ```
@@ -237,7 +182,7 @@ asap-raw-{cohort}-{source}-{modality_flavour}-{context}
         └── cohort_analysis
             └── ${cohort_analysis_workflow_version}
                 └── ${workflow_run_timestamp}
-                    └── <per-sample integration outputs>
+                    └── <per-sample deconvolution outputs>
 ```
 
 ### Staging data (intermediate workflow objects and final workflow outputs for the latest run of the workflow)
@@ -252,13 +197,13 @@ asap-dev-{cohort}-{source}-{modality_flavour}-{context}
     └── release
         └── ${crn_release_version}
             ├── cohort_analysis
-            │   ├── ${sampleA_id}.integrated.h5ad
-            │   ├── ${sampleA_id}.integration_metadata.csv
-            │   ├── ${sampleB_id}.integrated.h5ad
-            │   ├── ${sampleB_id}.integration_metadata.csv
+            │   ├── ${sampleA_id}.deconvoluted.h5ad
+            │   ├── ${sampleA_id}.deconvolution_metadata.csv
+            │   ├── ${sampleB_id}.deconvoluted.h5ad
+            │   ├── ${sampleB_id}.deconvolution_metadata.csv
             │   ├── ...
-            │   ├── ${sampleN_id}.integrated.h5ad
-            │   ├── ${sampleN_id}.integration_metadata.csv
+            │   ├── ${sampleN_id}.deconvoluted.h5ad
+            │   ├── ${sampleN_id}.deconvolution_metadata.csv
             │   └── MANIFEST.tsv
             ├── workflow_version  # plain text file
             └── workflow_metadata
@@ -310,7 +255,7 @@ Docker images are defined in [the `docker` directory](docker). Each image must m
 Example directory structure:
 ```bash
 docker
-└── integration_tools
+└── cell2location_tools
     ├── build.env
     ├── Dockerfile
     ├── requirements.txt
@@ -335,7 +280,7 @@ Docker images can be built using the [`build_docker_images`](https://github.com/
 
 ```bash
 # Build a single image (use -x to target linux/amd64)
-./build_docker_images -d docker/integration_tools -x
+./build_docker_images -d docker/cell2location_tools -x
 
 # Build all images in the `docker` directory
 ./build_docker_images -d docker -x
@@ -348,9 +293,8 @@ Docker images can be built using the [`build_docker_images`](https://github.com/
 
 | Image | Major tool versions | Links |
 | :- | :- | :- |
-| integration_tools | <ul><li>[google-cloud-cli 524.0.0](https://cloud.google.com/sdk/docs/release-notes#52400_2025-05-28)</li><li>[python 3.10.12](https://www.python.org/downloads/release/python-31012/)</li><li>[anndata](https://anndata.readthedocs.io/en/latest/)</li><li>[scanpy](https://scanpy.readthedocs.io/en/stable/)</li></ul> | [Dockerfile](docker/integration_tools) |
 | cell2location_tools | <ul><li>[cell2location](https://github.com/BayraktarLab/cell2location)</li><li>[PyTorch](https://pytorch.org/)</li></ul> | [Dockerfile](docker/cell2location_tools) |
-| rctd_tools | <ul><li>[spacexr](https://github.com/dmcable/spacexr)</li></ul> | [Dockerfile](docker/rctd_tools) |
+| rctd_tools | <ul><li>[spacexr](https://github.com/dmcable/spacexr)</li></ul> | [Dockerfile](docker/rctd_tools) — *to be implemented* |
 | util | <ul><li>[google-cloud-cli 524.0.0](https://cloud.google.com/sdk/docs/release-notes#52400_2025-05-28)</li></ul> | [Dockerfile](https://github.com/ASAP-CRN/wf-common/tree/main/docker/util) |
 
 
@@ -358,4 +302,4 @@ Docker images can be built using the [`build_docker_images`](https://github.com/
 
 [`wdl-ci`](https://github.com/DNAstack/wdl-ci) provides tools to validate and test workflows and tasks written in [Workflow Description Language (WDL)](https://github.com/openwdl/wdl). In addition to the tests packaged in `wdl-ci`, the [spatial-sc-rnaseq-integration-wdl-ci-custom-test-dir](./spatial-sc-rnaseq-integration-wdl-ci-custom-test-dir) is a directory containing custom WDL-based tests that are used to test workflow tasks. `wdl-ci` in this repository is set up to run on pull request.
 
-In general, `wdl-ci` will use inputs provided in the [wdl-ci.config.json](./wdl-ci.config.json) and compare current outputs and validated outputs based on changed tasks/workflows to ensure outputs are still valid by meeting the criteria in the specified tests. For example, if the `integrate_sample` task was changed, then this task would be submitted and that output would be considered the "current output". When inspecting the integrated AnnData object, there is a test specified in the [wdl-ci.config.json](./wdl-ci.config.json) called `check_hdf5`. The test will compare the "current output" and "validated output" (provided in the [wdl-ci.config.json](./wdl-ci.config.json)) to make sure that the `.h5ad` file is still a valid HDF5 file.
+In general, `wdl-ci` will use inputs provided in the [wdl-ci.config.json](./wdl-ci.config.json) and compare current outputs and validated outputs based on changed tasks/workflows to ensure outputs are still valid by meeting the criteria in the specified tests. For example, if the `cell2location_visium` task was changed, then this task would be submitted and that output would be considered the "current output". When inspecting the deconvoluted AnnData object, there is a test specified in the [wdl-ci.config.json](./wdl-ci.config.json) called `check_hdf5`. The test will compare the "current output" and "validated output" (provided in the [wdl-ci.config.json](./wdl-ci.config.json)) to make sure that the `.h5ad` file is still a valid HDF5 file.

@@ -1,20 +1,21 @@
 {
-  "spatial_sc_rnaseq_integration.cohort_id": "String",
-
-  "spatial_sc_rnaseq_integration.sc_rnaseq_projects": "Array[ScRnaseqProject] — typically one entry (cross-team cohort). Each entry: { asap_team_id, asap_dataset_id, asap_dataset_doi_url, final_adata_object (File), final_metadata_csv (File), scanvi_cell_types_parquet (File), raw_data_bucket, staging_data_buckets }",
+  "spatial_sc_rnaseq_integration.sc_rnaseq_reference_adata": "File — scRNA-seq reference AnnData used as the Cell2location deconvolution reference for all spatial samples",
 
   "spatial_sc_rnaseq_integration.spatial_visium_projects": "Array[SpatialVisiumProject] (optional, default = []) — each entry: { asap_team_id, asap_dataset_id, asap_dataset_doi_url, samples (Array[SpatialVisiumSample]), raw_data_bucket, staging_data_buckets }. SpatialVisiumSample: { sample_id (String), qc_adata_object (File) } — from spatial_visium preprocess.qc_adata_objects",
 
-  "spatial_sc_rnaseq_integration.spatial_geomx_projects": "Array[SpatialGeomxProject] (optional, default = []) — each entry: { asap_team_id, asap_dataset_id, asap_dataset_doi_url, samples (Array[SpatialGeomxSample]), raw_data_bucket, staging_data_buckets }. SpatialGeomxSample: { sample_id (String), processed_adata_object (File) } — from spatial_geomx process_to_adata.processed_adata_objects",
+  "spatial_sc_rnaseq_integration.sc_rnaseq_reference_cell2location_model": "File? (optional) — pre-computed inf_aver.csv.gz from a previous run. When provided, Stage 1 NB regression is skipped for all samples. When omitted, Stage 1 is trained from sc_rnaseq_reference_adata.",
 
   "spatial_sc_rnaseq_integration.batch_key": "String (optional, default = \"batch_id\")",
-  "spatial_sc_rnaseq_integration.n_top_genes": "Int (optional, default = 3000)",
+  "spatial_sc_rnaseq_integration.cell_type_key": "String (optional, default = \"cell_type_pred\")",
+  "spatial_sc_rnaseq_integration.n_cells_per_spot": "Int (optional, default = 8) — Cell2location N_cells_per_location prior; 8 for brain Visium.",
+  "spatial_sc_rnaseq_integration.detection_alpha": "Int (optional, default = 100) — Cell2location detection rate prior (20–200).",
+  "spatial_sc_rnaseq_integration.max_epochs_ref": "Int (optional, default = 250) — NB regression training epochs.",
+  "spatial_sc_rnaseq_integration.max_epochs_spatial": "Int (optional, default = 30000) — Cell2location spatial mapping epochs.",
   "spatial_sc_rnaseq_integration.n_comps": "Int (optional, default = 30)",
   "spatial_sc_rnaseq_integration.n_neighbors": "Int (optional, default = 15)",
-  "spatial_sc_rnaseq_integration.leiden_res": "Array[Float] (optional, default = [0.05, 0.1, 0.2, 0.4])",
+  "spatial_sc_rnaseq_integration.leiden_res": "Array[Float] (optional, default = [0.2, 0.5, 1.0])",
 
   "spatial_sc_rnaseq_integration.cohort_raw_data_bucket_spatial_sc_rnaseq": "String",
-  "spatial_sc_rnaseq_integration.cohort_staging_data_buckets_spatial_sc_rnaseq": "Array[String]",
   "spatial_sc_rnaseq_integration.container_registry": "String",
   "spatial_sc_rnaseq_integration.zones": "String (optional, default = \"us-central1-c us-central1-f\")"
 }
