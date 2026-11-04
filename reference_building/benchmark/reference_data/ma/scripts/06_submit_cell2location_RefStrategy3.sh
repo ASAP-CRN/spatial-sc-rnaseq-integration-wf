@@ -22,6 +22,7 @@ BATCH_KEY="batch_id"
 CELL_TYPE_KEY="harmonized_cell_type_siletti_allen"
 MAX_EPOCHS_REF=250
 MAX_EPOCHS_SPATIAL=30000
+MIN_CELLS=15
 
 mkdir -p "$OUTPUT_DIR" "$DATA_DIR"
 printf '[%s] Invoked: %s %s\n\n' "$(date '+%Y-%m-%d %H:%M:%S')" "$0" "$*" > "$LOG_FILE"
@@ -46,6 +47,7 @@ else
         --batch-key "$BATCH_KEY" \
         --cell-type-key "$CELL_TYPE_KEY" \
         --max-epochs-ref "$MAX_EPOCHS_REF" \
+        --min-cells-per-type "$MIN_CELLS" \
         --output-dir "$OUTPUT_DIR" \
         --promote)
     log_command "${STAGE1_CMD[@]}"
@@ -65,6 +67,7 @@ for spatial_h5ad in "${INPUT_H5ADS[@]}"; do
         --spatial-h5ad "$spatial_h5ad" \
         --sc-rnaseq-reference-cell2location-model "$INF_AVER" \
         --max-epochs-spatial "$MAX_EPOCHS_SPATIAL" \
+        --min-cells-per-type "$MIN_CELLS" \
         --output-dir "$OUTPUT_DIR" \
         --promote)
     log_command "${STAGE23_CMD[@]}"

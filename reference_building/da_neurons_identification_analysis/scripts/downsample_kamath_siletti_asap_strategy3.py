@@ -3,19 +3,19 @@
 Build a scRNA-seq deconvolution reference (Strategy 3) using ASAP cells labeled by the sc-rnaseq-wf v5.0.0,
 and the same Kamath/Siletti cells that were used in the Strategy 1 reference (which used the sc-rnaseq-wf v3.1.0 ASAP cells)
 
-Source   Counts source (raw UMIs)                               Label source                       Label handling
--------  -----------------------------------------------------  ---------------------------------  --------------------------------
-Kamath   kamath/intermediate/kamath_merged_cell_type_min200_    cell_type_scanvi (same file)        Mapped via KAMATH_TO_SILETTI_ALLEN
+Source   Counts source (raw UMIs)                                 Label source                       Label handling
+-------  -----------------------------------------------------    ---------------------------------  --------------------------------
+Kamath   kamath/intermediate/kamath_merged_cell_type_min200_      cell_type_scanvi (same file)        Mapped via KAMATH_TO_SILETTI_ALLEN
          100000_preQC.h5ad (33,295 genes; 99,329/99,329
-         barcodes match the v3.1.0 reference's Kamath cells)
-Siletti  siletti/intermediate/midbrain_da_neurons15000_         supercluster_term (same file)       Used as-is (native Siletti/Allen
+         barcodes match the Strategy 1 reference's Kamath cells)
+Siletti  siletti/intermediate/midbrain_da_neurons15000_           supercluster_term (same file)       Used as-is (native Siletti/Allen
          cells47643_preQC.h5ad (58,232 genes; all 99,553                                            annotation, not a prediction)
-         v3.1.0-reference Siletti barcodes present)
-ASAP     v5.0.0's asap-cohort.merged_cleaned_unfiltered.h5ad    C_scANVI (v5.0.0's                  Used as-is (sc-rnaseq-wf's own
-         (38,606 genes, full pre-QC-filter 5.0.0 cohort)        final_metadata.csv.gz)              scANVI prediction)
+         Strategy 1-reference Siletti barcodes present)
+ASAP     v5.0.0's asap-cohort.merged_cleaned_unfiltered.h5ad      C_scANVI (v5.0.0's                  Used as-is (sc-rnaseq-wf's own
+         (38,606 genes, full pre-QC-filter 5.0.0 cohort)          final_metadata.csv.gz)              scANVI prediction)
 
 ASAP cell selection (--n-cells-asap, default 100,000):
-  1. Of the v3.1.0 reference's 94,833 ASAP cells, keep whichever re-identify
+  1. Of the Strategy 1 reference's 94,833 ASAP cells, keep whichever re-identify
      1:1 in v5.0.0's final (QC-filtered) metadata (barcode matching logic
      shared with map_ASAP_barcodes_v3_vs_v5_releases.py).
   2. Top up with any native ASAP cells (source is NaN in the 5.0.0 metadata,
@@ -31,6 +31,7 @@ Outputs
 
 import sys
 import argparse
+import json
 from pathlib import Path
 
 import numpy as np
@@ -42,52 +43,63 @@ sys.path.insert(0, str(repo_root))
 
 from utils.logging_extra import log_run_command
 from utils.cell_type_maps import KAMATH_TO_SILETTI_ALLEN
-from utils.genomics_constants import KAMATH_DA_SUBTYPE_LABELS
+from utils.genomics_constants import KAMATH_DA_MARKER_SYMBOLS, KAMATH_DA_SUBTYPE_LABELS
+from utils.h5ad_utils import apply_cell2location_gene_filter, resolve_marker_ensembl_ids
 
 sys.path.insert(0, str(repo_root / "reference_building/benchmark/reference_data/ma/scripts"))
 from map_ASAP_barcodes_v3_vs_v5_releases import load_barcode_index, parse_v3_barcodes, parse_v5_barcodes, build_mapping
 
-_V3_REFERENCE_H5AD = "reference_building/reference_h5ad/deconvolution_reference_300k_c2lUda_Kamath200Rand.h5ad"
-_KAMATH_PREQC_H5AD = (
-    "reference_building/da_neurons_identification_analysis/reference_data/kamath/intermediate/"
-    "kamath_merged_cell_type_min200_100000_preQC.h5ad"
-)
-_SILETTI_PREQC_H5AD = (
-    "reference_building/da_neurons_identification_analysis/reference_data/siletti/intermediate/"
-    "midbrain_da_neurons15000_cells47643_preQC.h5ad"
-)
-_ASAP_V5_UNFILTERED_H5AD = (
-    "reference_building/da_neurons_identification_analysis/reference_data/asap_cohort/"
-    "pmdbs_sc_rnaseq/cohort_analysis/5.0.0/2026-10-19T14-59-48Z/asap-cohort.merged_cleaned_unfiltered.h5ad"
-)
-_ASAP_V5_FINAL_METADATA_CSV = (
-    "reference_building/da_neurons_identification_analysis/reference_data/asap_cohort/"
-    "pmdbs_sc_rnaseq/cohort_analysis/5.0.0/2026-10-19T14-59-48Z/asap-cohort.final_metadata.csv.gz"
-)
-_OUTDIR = "reference_building/reference_h5ad"
 _STEM = "deconvolution_reference_strategy3"
 _N_CELLS_ASAP_DEFAULT = 100_000
 
 _CELL_TYPE_COLUMN = "harmonized_cell_type_siletti_allen"
 
+_FILTER_GENES_CHOICES = ("intersection", "cell2location_default", "cell2location_u_da")
+_FILTER_GENES_DEFAULT = "intersection"
 
-def select_asap_barcodes(
-    v3_reference_h5ad: str,
-    v5_final_metadata_csv: str,
-    n_cells_asap: int,
-    rng: np.random.Generator,
-) -> pd.DataFrame:
+
+def _resolve_repo_path(path: str) -> str:
     """
-    Select v5.0.0 ASAP barcodes: re-identified v3.1.0 cells, DA top-up, random fill.
+    Resolve `path` against the repo root if relative, else return it unchanged.
+
+    Lets JSON configs use repo-relative paths (portable across machines/clones)
+    while still accepting absolute paths for anything outside the repo.
 
     Parameters
     ----------
-    v3_reference_h5ad : str
-        Path to the v3.1.0-era deconvolution reference H5AD.
+    path : str
+        Path from a JSON config; relative (to the repo root) or absolute.
+
+    Returns
+    -------
+    str
+        Absolute path.
+    """
+    p = Path(path)
+    return str(p if p.is_absolute() else (repo_root / p).resolve())
+
+
+def select_asap_barcodes(
+    v3_asap_barcodes: pd.Index,
+    v5_final_metadata_csv: str,
+    n_cells_asap: int,
+    min_cells_per_type: int,
+    rng: np.random.Generator,
+) -> pd.DataFrame:
+    """
+    Select v5.0.0 ASAP barcodes: re-identified Strategy 1 (sc-rnaseq-wf's v3.1.0) cells, DA top-up,
+    rare-cell-type top-up, random fill.
+
+    Parameters
+    ----------
+    v3_asap_barcodes : pandas.Index
+        Strategy 1 reference's ASAP barcodes (obs_names where source == "asap_cohort").
     v5_final_metadata_csv : str
         Path to v5.0.0's final (QC-filtered) metadata CSV.
     n_cells_asap : int
         Target total ASAP cell count.
+    min_cells_per_type : int
+        Top up any C_scANVI value sampled below this many cells.
     rng : numpy.random.Generator
         Random generator for the fill step.
 
@@ -95,13 +107,11 @@ def select_asap_barcodes(
     -------
     pandas.DataFrame
         Indexed by v5.0.0 barcode: "C_scANVI", "selection_reason" (one of
-        "mapped_from_v3.1.0", "da_topup", "random_fill").
+        "mapped_from_v3.1.0", "da_topup", "type_topup", "random_fill").
     """
-    print(f"[INFO] Loading v3.1.0 reference ASAP barcodes from {v3_reference_h5ad}")
-    v3_adata = ad.read_h5ad(v3_reference_h5ad, backed="r")
-    v3_asap_barcodes = v3_adata.obs_names[v3_adata.obs["source"] == "asap_cohort"]
+    print(f"  {len(v3_asap_barcodes):,} Strategy 1 (sc-rnaseq-wf's v3.1.0) ASAP barcode(s)")
     v3_df = parse_v3_barcodes(v3_asap_barcodes)
-    print(f"  {len(v3_df):,} v3.1.0 ASAP barcode(s) parsed")
+    print(f"  {len(v3_df):,} Strategy 1 (sc-rnaseq-wf's v3.1.0) ASAP barcode(s) parsed")
 
     print(f"[INFO] Loading v5.0.0 ASAP metadata from {v5_final_metadata_csv}")
     v5_cols = ["source", "is_spike_in", "C_scANVI", "team", "dataset", "batch"]
@@ -118,7 +128,7 @@ def select_asap_barcodes(
         v5_native["team"].astype(str) + "-" + v5_native["dataset"].astype(str) + "-" + v5_native["batch"].astype(str)
     )
 
-    print("[INFO] Mapping v3.1.0 ASAP barcodes to v5.0.0 ...")
+    print("[INFO] Mapping Strategy 1 (sc-rnaseq-wf's v3.1.0) ASAP barcodes to v5.0.0 ...")
     v5_df = parse_v5_barcodes(pd.Index(v5_native.index))
     mapping = build_mapping(v3_df, v5_df)
     mapped_v5_barcodes = set(mapping.loc[mapping["status"] == "1:1_vs_v5.0.0_final", "v5.0.0_barcode"])
@@ -130,6 +140,21 @@ def select_asap_barcodes(
 
     reason_by_barcode = {bc: "mapped_from_v3.1.0" for bc in mapped_v5_barcodes}
     reason_by_barcode.update({bc: "da_topup" for bc in da_barcodes})
+
+    if min_cells_per_type > 0:
+        current_counts = v5_native.loc[list(reason_by_barcode), "C_scANVI"].value_counts()
+        for ct, group in v5_native.groupby("C_scANVI", observed=True):
+            have = current_counts.get(ct, 0)
+            if have >= min_cells_per_type:
+                continue
+            candidates = group.index[~group.index.isin(reason_by_barcode)]
+            n_take = min(min_cells_per_type - have, len(candidates))
+            if n_take > 0:
+                take = rng.choice(candidates, size=n_take, replace=False)
+                reason_by_barcode.update({bc: "type_topup" for bc in take})
+            reached = have + n_take
+            status = "reached" if reached >= min_cells_per_type else f"capped, only {have + len(candidates)} available"
+            print(f"[INFO] C_scANVI={ct!r}: had {have:,}, topped up {n_take:,} ({status})")
 
     n_fill = n_cells_asap - len(reason_by_barcode)
     if n_fill > 0:
@@ -154,18 +179,19 @@ def select_asap_barcodes(
     print(f"[INFO] {len(selected):,} ASAP barcode(s) selected total "
           f"({(selected['selection_reason'] == 'mapped_from_v3.1.0').sum():,} mapped_from_v3.1.0, "
           f"{(selected['selection_reason'] == 'da_topup').sum():,} da_topup, "
+          f"{(selected['selection_reason'] == 'type_topup').sum():,} type_topup, "
           f"{(selected['selection_reason'] == 'random_fill').sum():,} random_fill)")
     return selected
 
 
-def build_kamath_block(v3_reference_h5ad: str, kamath_preqc_h5ad: str) -> ad.AnnData:
+def build_kamath_block(v3_kamath_barcodes: pd.Index, kamath_preqc_h5ad: str) -> ad.AnnData:
     """
-    Load raw-UMI Kamath counts for the v3.1.0 reference's Kamath cells.
+    Load raw-UMI Kamath counts for the Strategy 1 (sc-rnaseq-wf's v3.1.0) reference's Kamath cells.
 
     Parameters
     ----------
-    v3_reference_h5ad : str
-        Path to the v3.1.0-era deconvolution reference H5AD.
+    v3_kamath_barcodes : pandas.Index
+        Strategy 1 reference's Kamath barcodes (obs_names where source == "kamath").
     kamath_preqc_h5ad : str
         Path to Kamath's preQC intermediate H5AD (full gene panel, raw counts).
 
@@ -179,13 +205,10 @@ def build_kamath_block(v3_reference_h5ad: str, kamath_preqc_h5ad: str) -> ad.Ann
     Raises
     ------
     KeyError
-        A v3.1.0 Kamath barcode is absent from `kamath_preqc_h5ad`, or its
+        A Kamath barcode is absent from `kamath_preqc_h5ad`, or its
         cell_type_scanvi value has no entry in KAMATH_TO_SILETTI_ALLEN.
     """
-    print(f"[INFO] Loading v3.1.0 reference Kamath barcodes from {v3_reference_h5ad}")
-    v3_adata = ad.read_h5ad(v3_reference_h5ad, backed="r")
-    v3_kamath_barcodes = v3_adata.obs_names[v3_adata.obs["source"] == "kamath"]
-    print(f"  {len(v3_kamath_barcodes):,} v3.1.0 Kamath barcode(s)")
+    print(f"  {len(v3_kamath_barcodes):,} Strategy 1 (sc-rnaseq-wf's v3.1.0) Kamath barcode(s)")
 
     print(f"[INFO] Loading raw Kamath counts from {kamath_preqc_h5ad}")
     kamath = ad.read_h5ad(kamath_preqc_h5ad, backed="r")
@@ -206,14 +229,14 @@ def build_kamath_block(v3_reference_h5ad: str, kamath_preqc_h5ad: str) -> ad.Ann
     return kamath
 
 
-def build_siletti_block(v3_reference_h5ad: str, siletti_preqc_h5ad: str) -> ad.AnnData:
+def build_siletti_block(v3_siletti_barcodes: pd.Index, siletti_preqc_h5ad: str) -> ad.AnnData:
     """
-    Load raw-UMI Siletti counts for the v3.1.0 reference's Siletti cells.
+    Load raw-UMI Siletti counts for the Strategy 1 (sc-rnaseq-wf's v3.1.0) reference's Siletti cells.
 
     Parameters
     ----------
-    v3_reference_h5ad : str
-        Path to the v3.1.0-era deconvolution reference H5AD.
+    v3_siletti_barcodes : pandas.Index
+        Strategy 1 reference's Siletti barcodes (obs_names where source == "siletti").
     siletti_preqc_h5ad : str
         Path to Siletti's preQC intermediate H5AD (full gene panel, raw counts,
         native supercluster_term annotation).
@@ -230,10 +253,7 @@ def build_siletti_block(v3_reference_h5ad: str, siletti_preqc_h5ad: str) -> ad.A
     KeyError
         A v3.1.0 Siletti barcode is absent from `siletti_preqc_h5ad`.
     """
-    print(f"[INFO] Loading v3.1.0 reference Siletti barcodes from {v3_reference_h5ad}")
-    v3_adata = ad.read_h5ad(v3_reference_h5ad, backed="r")
-    v3_siletti_barcodes = v3_adata.obs_names[v3_adata.obs["source"] == "siletti"]
-    print(f"  {len(v3_siletti_barcodes):,} v3.1.0 Siletti barcode(s)")
+    print(f"  {len(v3_siletti_barcodes):,} Strategy 1 (sc-rnaseq-wf's v3.1.0) Siletti barcode(s)")
 
     print(f"[INFO] Loading raw Siletti counts from {siletti_preqc_h5ad}")
     siletti = ad.read_h5ad(siletti_preqc_h5ad, backed="r")
@@ -286,10 +306,7 @@ def build_asap_block(selected: pd.DataFrame, asap_v5_unfiltered_h5ad: str) -> ad
     if counts_layer is not None:
         asap.X = asap.layers[counts_layer]
 
-    # var_names here are mostly gene symbols (Ensembl ID only as a fallback
-    # when no symbol exists) -- re-index to Ensembl IDs so the inner join
-    # against Kamath/Siletti's Ensembl-ID var_names actually matches, same as
-    # downsample_kamath_menon_siletti_asap.py's load_asap_cohort does.
+    # var_names here are mostly gene symbols Ensembl ID fallback.
     if "gene_id" in asap.var.columns:
         asap.var_names = asap.var["gene_id"].values
     else:
@@ -311,7 +328,11 @@ def main(
     asap_v5_unfiltered_h5ad: str,
     asap_v5_final_metadata_csv: str,
     n_cells_asap: int,
+    min_cells_per_type: int,
+    min_cells_per_batch: int,
     outdir: str,
+    filter_genes_mode: str,
+    promote: bool,
 ) -> None:
     """
     Build and write the ASAP-5.0.0 counterpart reference H5AD.
@@ -319,7 +340,7 @@ def main(
     Parameters
     ----------
     v3_reference_h5ad : str
-        Path to the v3.1.0-era deconvolution reference H5AD.
+        Path to the Strategy 1 (sc-rnaseq-wf's v3.1.0) deconvolution reference H5AD.
     kamath_preqc_h5ad : str
         Path to Kamath's preQC intermediate H5AD.
     siletti_preqc_h5ad : str
@@ -330,8 +351,16 @@ def main(
         Path to v5.0.0's final (QC-filtered) metadata CSV.
     n_cells_asap : int
         Target total ASAP cell count.
+    min_cells_per_type : int
+        Top up any ASAP C_scANVI value sampled below this many cells.
+    min_cells_per_batch : int
+        Drop cells whose batch_id group has fewer than this many cells.
     outdir : str
         Destination directory. Output is written as `{_STEM}.h5ad`.
+    filter_genes_mode : str
+        Gene set to write beyond the raw cross-source intersection.
+    promote : bool
+        If False, dry-run only (no file written).
 
     Returns
     -------
@@ -339,9 +368,18 @@ def main(
     """
     rng = np.random.default_rng(42)
 
-    kamath = build_kamath_block(v3_reference_h5ad, kamath_preqc_h5ad)
-    siletti = build_siletti_block(v3_reference_h5ad, siletti_preqc_h5ad)
-    selected_asap = select_asap_barcodes(v3_reference_h5ad, asap_v5_final_metadata_csv, n_cells_asap, rng)
+    print(f"[INFO] Loading Strategy 1 (sc-rnaseq-wf's v3.1.0) reference barcodes from {v3_reference_h5ad}")
+    v3_adata = ad.read_h5ad(v3_reference_h5ad, backed="r")
+    v3_kamath_barcodes = v3_adata.obs_names[v3_adata.obs["source"] == "kamath"]
+    v3_siletti_barcodes = v3_adata.obs_names[v3_adata.obs["source"] == "siletti"]
+    v3_asap_barcodes = v3_adata.obs_names[v3_adata.obs["source"] == "asap_cohort"]
+
+    kamath = build_kamath_block(v3_kamath_barcodes, kamath_preqc_h5ad)
+    siletti = build_siletti_block(v3_siletti_barcodes, siletti_preqc_h5ad)
+    siletti_feature_name = siletti.var["feature_name"] if "feature_name" in siletti.var.columns else None
+    selected_asap = select_asap_barcodes(
+        v3_asap_barcodes, asap_v5_final_metadata_csv, n_cells_asap, min_cells_per_type, rng
+    )
     asap = build_asap_block(selected_asap, asap_v5_unfiltered_h5ad)
 
     print("[INFO] Concatenating Kamath + Siletti + ASAP (inner join on genes) ...")
@@ -354,9 +392,45 @@ def main(
     print(combined.obs["source"].value_counts())
     print(combined.obs[_CELL_TYPE_COLUMN].value_counts())
 
+    if min_cells_per_batch > 0:
+        batch_counts = combined.obs["batch_id"].value_counts()
+        keep_batches = batch_counts[batch_counts >= min_cells_per_batch].index
+        n_before = combined.n_obs
+        keep_mask = combined.obs["batch_id"].isin(keep_batches)
+        combined = combined[keep_mask.values].copy()
+        n_dropped = n_before - combined.n_obs
+        n_batches_dropped = len(batch_counts) - len(keep_batches)
+        print(
+            f"[INFO] Dropped {n_dropped:,} cells from {n_batches_dropped} batch(es) "
+            f"with < {min_cells_per_batch} cells ('batch_id'). "
+            f"{combined.n_obs:,} cells remaining."
+        )
+
+    if filter_genes_mode != "intersection":
+        print(f"[INFO] Applying --filter-genes {filter_genes_mode} ...")
+        da_marker_ensembl_ids = None
+        if filter_genes_mode == "cell2location_u_da":
+            if siletti_feature_name is None:
+                raise ValueError(
+                    "--filter-genes cell2location_u_da requires Siletti's "
+                    "var['feature_name'] to resolve Kamath DA marker symbols to Ensembl IDs, "
+                    "but it was not found."
+                )
+            da_marker_ensembl_ids = resolve_marker_ensembl_ids(
+                siletti_feature_name, KAMATH_DA_MARKER_SYMBOLS, "siletti"
+            )
+        combined = apply_cell2location_gene_filter(combined, filter_genes_mode, da_marker_ensembl_ids)
+        print(f"[INFO] After gene filtering: {combined.n_obs:,} cells x {combined.n_vars:,} genes")
+
+    out_path = Path(outdir) / f"{_STEM}.h5ad"
+    if not promote:
+        print(f"[DRY-RUN] Would write: {out_path}")
+        print(f"          Shape: {combined.n_obs:,} cells x {combined.n_vars:,} genes")
+        print("          Re-run with --promote to write the file.")
+        return
+
     outdir_path = Path(outdir)
     outdir_path.mkdir(parents=True, exist_ok=True)
-    out_path = outdir_path / f"{_STEM}.h5ad"
     combined.write_h5ad(out_path, compression="gzip")
     print(f"[DONE] Written {out_path}")
 
@@ -367,53 +441,115 @@ if __name__ == "__main__":
         formatter_class=argparse.RawTextHelpFormatter,
     )
     parser.add_argument(
-        "--v3-reference-h5ad",
-        default=_V3_REFERENCE_H5AD,
-        help=f"Path to the v3.1.0-era deconvolution reference H5AD.\n[Default: {_V3_REFERENCE_H5AD}]",
-    )
-    parser.add_argument(
-        "--kamath-preqc-h5ad",
-        default=_KAMATH_PREQC_H5AD,
-        help=f"Path to Kamath's preQC intermediate H5AD.\n[Default: {_KAMATH_PREQC_H5AD}]",
-    )
-    parser.add_argument(
-        "--siletti-preqc-h5ad",
-        default=_SILETTI_PREQC_H5AD,
-        help=f"Path to Siletti's preQC intermediate H5AD.\n[Default: {_SILETTI_PREQC_H5AD}]",
-    )
-    parser.add_argument(
-        "--asap-v5-unfiltered-h5ad",
-        default=_ASAP_V5_UNFILTERED_H5AD,
+        "-i", "--input-json",
+        required=True,
         help=(
-            "Path to v5.0.0's pre-QC-filter merged_cleaned_unfiltered H5AD.\n"
-            f"[Default: {_ASAP_V5_UNFILTERED_H5AD}]"
+            "Path to a JSON config file, e.g.:\n"
+            "\n"
+            "{\n"
+            '  "v3_reference_h5ad": "/path/to/deconvolution_reference_300k_c2lUda_Kamath200Rand.h5ad",\n'
+            '  "kamath_preqc_h5ad": "/path/to/kamath_merged_cell_type_min200_100000_preQC.h5ad",\n'
+            '  "siletti_preqc_h5ad": "/path/to/midbrain_da_neurons15000_cells47643_preQC.h5ad",\n'
+            '  "asap_v5_unfiltered_h5ad": "/path/to/asap-cohort.merged_cleaned_unfiltered.h5ad",\n'
+            '  "asap_v5_final_metadata_csv": "/path/to/asap-cohort.final_metadata.csv.gz",\n'
+            '  "outdir": "/path/to/output_dir",\n'
+            f'  "n_cells_asap": {_N_CELLS_ASAP_DEFAULT},\n'
+            f'  "filter_genes": "{_FILTER_GENES_DEFAULT}"\n'
+            "}\n"
+            "\n"
+            "Paths may be relative to the repo root or absolute.\n"
+            "\n"
+            "Fields:\n"
+            "  v3_reference_h5ad (required)\n"
+            "      Path to the Strategy 1 (sc-rnaseq-wf's v3.1.0) deconvolution reference H5AD.\n"
+            "\n"
+            "  kamath_preqc_h5ad (required)\n"
+            "      Path to Kamath's preQC intermediate H5AD.\n"
+            "\n"
+            "  siletti_preqc_h5ad (required)\n"
+            "      Path to Siletti's preQC intermediate H5AD.\n"
+            "\n"
+            "  asap_v5_unfiltered_h5ad (required)\n"
+            "      Path to v5.0.0's pre-QC-filter merged_cleaned_unfiltered H5AD.\n"
+            "\n"
+            "  asap_v5_final_metadata_csv (required)\n"
+            "      Path to v5.0.0's final (QC-filtered) metadata CSV.\n"
+            "\n"
+            "  outdir (required)\n"
+            f"      Destination directory. Output is written as {_STEM}.h5ad.\n"
+            "\n"
+            "  n_cells_asap (optional)\n"
+            "      Target total ASAP cell count.\n"
+            f"      Default: {_N_CELLS_ASAP_DEFAULT}\n"
+            "\n"
+            "  minimum_cells_per_type (optional)\n"
+            "      Top up any ASAP C_scANVI cell type sampled below this many cells.\n"
+            "      Default: 0 (disabled)\n"
+            "\n"
+            "  minimum_cells_per_batch (optional)\n"
+            "      Drop cells whose batch_id group has fewer than this many cells\n"
+            "      Default: 0 (disabled)\n"
+            "\n"
+            "  filter_genes (optional)\n"
+            "      Gene set to write, beyond the raw cross-source intersection:\n"
+            "        intersection          : no further filtering (default).\n"
+            "        cell2location_default : cell2location.utils.filtering.filter_genes\n"
+            "                                with the tutorial's defaults (cell_count_cutoff=5,\n"
+            "                                cell_percentage_cutoff2=0.03, nonz_mean_cutoff=1.12).\n"
+            "        cell2location_u_da    : cell2location_default, unioned with Kamath's\n"
+            "                                17 DA marker genes.\n"
+            f"      Default: {_FILTER_GENES_DEFAULT}\n"
         ),
     )
     parser.add_argument(
-        "--asap-v5-final-metadata-csv",
-        default=_ASAP_V5_FINAL_METADATA_CSV,
-        help=f"Path to v5.0.0's final (QC-filtered) metadata CSV.\n[Default: {_ASAP_V5_FINAL_METADATA_CSV}]",
-    )
-    parser.add_argument(
-        "--n-cells-asap",
-        type=int,
-        default=_N_CELLS_ASAP_DEFAULT,
-        help=f"Target total ASAP cell count.\n[Default: {_N_CELLS_ASAP_DEFAULT}]",
-    )
-    parser.add_argument(
-        "--outdir",
-        default=_OUTDIR,
-        help=f"Destination directory. Output is written as {_STEM}.h5ad.\n[Default: {_OUTDIR}]",
+        "--promote",
+        action="store_true",
+        default=False,
+        help="Write the output file. Default is dry-run.",
     )
     args = parser.parse_args()
 
-    log_run_command(Path(args.outdir) / f"{_STEM}.log")
+    try:
+        with open(args.input_json, "r") as f:
+            config = json.load(f)
+    except FileNotFoundError:
+        parser.error(f"{args.input_json} JSON file does not exist.")
+
+    try:
+        v3_reference_h5ad = config["v3_reference_h5ad"]
+        kamath_preqc_h5ad = config["kamath_preqc_h5ad"]
+        siletti_preqc_h5ad = config["siletti_preqc_h5ad"]
+        asap_v5_unfiltered_h5ad = config["asap_v5_unfiltered_h5ad"]
+        asap_v5_final_metadata_csv = config["asap_v5_final_metadata_csv"]
+        outdir = config["outdir"]
+    except KeyError as e:
+        parser.error(f"Missing required field {e} in {args.input_json}.")
+
+    filter_genes_mode = config.get("filter_genes", _FILTER_GENES_DEFAULT)
+    if filter_genes_mode not in _FILTER_GENES_CHOICES:
+        parser.error(f"filter_genes must be one of {_FILTER_GENES_CHOICES}, got: {filter_genes_mode!r}")
+
+    v3_reference_h5ad = _resolve_repo_path(v3_reference_h5ad)
+    kamath_preqc_h5ad = _resolve_repo_path(kamath_preqc_h5ad)
+    siletti_preqc_h5ad = _resolve_repo_path(siletti_preqc_h5ad)
+    asap_v5_unfiltered_h5ad = _resolve_repo_path(asap_v5_unfiltered_h5ad)
+    asap_v5_final_metadata_csv = _resolve_repo_path(asap_v5_final_metadata_csv)
+    n_cells_asap = config.get("n_cells_asap", _N_CELLS_ASAP_DEFAULT)
+    min_cells_per_type = config.get("minimum_cells_per_type", 0)
+    min_cells_per_batch = config.get("minimum_cells_per_batch", 0)
+    outdir = _resolve_repo_path(outdir)
+
+    log_run_command(Path(outdir) / f"{_STEM}.log")
     main(
-        args.v3_reference_h5ad,
-        args.kamath_preqc_h5ad,
-        args.siletti_preqc_h5ad,
-        args.asap_v5_unfiltered_h5ad,
-        args.asap_v5_final_metadata_csv,
-        args.n_cells_asap,
-        args.outdir,
+        v3_reference_h5ad,
+        kamath_preqc_h5ad,
+        siletti_preqc_h5ad,
+        asap_v5_unfiltered_h5ad,
+        asap_v5_final_metadata_csv,
+        n_cells_asap,
+        min_cells_per_type,
+        min_cells_per_batch,
+        outdir,
+        filter_genes_mode,
+        args.promote,
     )

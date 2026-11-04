@@ -7,6 +7,7 @@ and all-genes intersecting across sources."""
 import argparse
 import json
 import os
+import re
 import sys
 import numpy as np
 import anndata as ad
@@ -24,6 +25,8 @@ from utils.genomics_constants import KAMATH_DA_MARKER_SYMBOLS, KAMATH_DA_SUBTYPE
 
 
 _BATCH_COL = "batch_id"  # obs column used for per-batch cell-count filtering
+
+_ENSEMBL_ID_PATTERN = re.compile(r"^ENSG[0-9]+(\.[0-9]+)?$")
 
 # sc-rnaseq-wf's spike-in convention: source is only set for spike-in cells
 # (e.g. "kamath", "siletti"); native ASAP cohort cells are left NaN. Treated
@@ -335,6 +338,61 @@ def _force_include_all_da_cells(
     return result
 
 
+def _ensembl_match_rate(values: list) -> float:
+    """
+    Fraction of `values` that look like a bare (optionally versioned) Ensembl gene ID.
+
+    Parameters
+    ----------
+    values : list
+        Candidate gene identifiers to check.
+
+    Returns
+    -------
+    float
+        Match rate in [0, 1]; 0.0 for an empty list.
+    """
+    if not values:
+        return 0.0
+    n_match = sum(1 for v in values if isinstance(v, str) and _ENSEMBL_ID_PATTERN.match(v))
+    return n_match / len(values)
+
+
+def _resolve_ensembl_gene_ids(subset: ad.AnnData, source_name: str) -> list:
+    """
+    Pick whichever var field looks like Ensembl gene IDs.
+
+    Parameters
+    ----------
+    subset : anndata.AnnData
+        Source AnnData subset to inspect.
+    source_name : str
+        Display label for messages.
+
+    Returns
+    -------
+    list
+        Values from whichever field has the highest Ensembl ID match rate.
+    """
+    candidates = {"var_names": list(subset.var_names)}
+    for col in subset.var.columns:
+        candidates[col] = list(subset.var[col].astype(str))
+
+    best_field, best_values, best_rate = None, None, -1.0
+    for field, values in candidates.items():
+        rate = _ensembl_match_rate(values)
+        if rate > best_rate:
+            best_field, best_values, best_rate = field, values, rate
+
+    print(f"  [{source_name}] gene ID field: '{best_field}' "
+          f"({best_rate:.1%} of {len(best_values):,} values match Ensembl ID format)")
+    if best_rate < 0.9:
+        print(f"  [WARNING] [{source_name}] no var field looks consistently like Ensembl IDs "
+              f"(best: '{best_field}' at {best_rate:.1%}); gene intersection may be unreliable.")
+
+    return best_values
+
+
 def _load_source_counts(
     preqc_h5ad: str,
     target_barcodes: list,
@@ -355,9 +413,9 @@ def _load_source_counts(
     Returns
     -------
     tuple
-        (csr_matrix int32, list of var_names, list of matched barcodes,
+        (csr_matrix int32, list of Ensembl gene IDs, list of matched barcodes,
         var['feature_name'] pandas.Series or None if not present)
-        The matrix rows match `matched_barcodes` in the same order.
+        Gene IDs are resolved via `_resolve_ensembl_gene_ids`.
     """
     all_barcodes = _read_barcodes(preqc_h5ad)
     bc_to_idx = {bc: i for i, bc in enumerate(all_barcodes)}
@@ -378,7 +436,7 @@ def _load_source_counts(
     print(f"  [{source_name}] loading {len(sorted_idx):,} cells from {preqc_h5ad}")
     preqc = ad.read_h5ad(preqc_h5ad, backed="r")
     subset = preqc[sorted_idx].to_memory()
-    var_names = list(subset.var_names)
+    var_names = _resolve_ensembl_gene_ids(subset, source_name)
     feature_name = subset.var["feature_name"] if "feature_name" in subset.var.columns else None
     counts = extract_raw_counts(subset, source_name=source_name)
 

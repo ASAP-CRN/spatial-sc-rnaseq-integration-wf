@@ -1,0 +1,12 @@
+{
+  "v3_reference_h5ad": "reference_building/reference_h5ad/strategy_1/deconvolution_reference_300k_c2lUda_Kamath200Rand.h5ad",
+  "kamath_preqc_h5ad": "reference_building/da_neurons_identification_analysis/reference_data/kamath/intermediate/kamath_merged_cell_type_min200_100000_preQC.h5ad",
+  "siletti_preqc_h5ad": "reference_building/da_neurons_identification_analysis/reference_data/siletti/intermediate/midbrain_da_neurons15000_cells47643_preQC.h5ad",
+  "asap_v5_unfiltered_h5ad": "reference_building/da_neurons_identification_analysis/reference_data/asap_cohort/pmdbs_sc_rnaseq/cohort_analysis/5.0.0/2026-10-19T14-59-48Z/asap-cohort.merged_cleaned_unfiltered.h5ad",
+  "asap_v5_final_metadata_csv": "reference_building/da_neurons_identification_analysis/reference_data/asap_cohort/pmdbs_sc_rnaseq/cohort_analysis/5.0.0/2026-10-19T14-59-48Z/asap-cohort.final_metadata.csv.gz",
+  "n_cells_asap": 100000,
+  "minimum_cells_per_type": 15,
+  "minimum_cells_per_batch": 15,
+  "outdir": "reference_building/reference_h5ad/strategy_3",
+  "filter_genes": "cell2location_u_da"
+}
