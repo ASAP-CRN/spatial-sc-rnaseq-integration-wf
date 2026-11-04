@@ -20,6 +20,7 @@ RUN apt-get -qq update \
 		curl \
 		git \
 		time \
+		xxd \
 		zlib1g-dev \
 		libffi-dev \
 		libssl-dev \
