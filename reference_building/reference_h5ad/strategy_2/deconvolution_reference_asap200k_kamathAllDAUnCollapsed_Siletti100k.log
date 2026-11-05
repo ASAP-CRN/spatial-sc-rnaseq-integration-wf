@@ -1,10 +1,9 @@
-[2026-10-29 00:04:25] scripts/build_deconv_reference_h5ad.py -i reference_building/reference_h5ad/build_reference_h5ad_asap200k_kamathAllDAUnCollapsed_Siletti100k.json --promote
+[2026-11-03 16:40:07] scripts/build_deconv_reference_h5ad.py -i reference_building/reference_h5ad/strategy_2/build_reference_h5ad_asap200k_kamathAllDAUnCollapsed_Siletti100k.json --promote
 [INFO] Loading integrated obs from: /Users/javier.diazmejia/asap_repos/spatial-sc-rnaseq-integration-wf/reference_building/da_neurons_identification_analysis/reference_data/asap_cohort/pmdbs_sc_rnaseq/cohort_analysis/5.0.0/2026-10-19T14-59-48Z/asap-cohort.final_metadata.csv.gz
-/Users/javier.diazmejia/asap_repos/spatial-sc-rnaseq-integration-wf/scripts/build_deconv_reference_h5ad.py:172: DtypeWarning: Columns (12,13,16,17,25,28,29,30,33,34,36,37,38,39,40,41,42,43,44,45,46,47,48,49,50,51,52,53,54,55,56,57,58,59,60,61,62,63,69,70,73,74,75,76,77,78,79) have mixed types. Specify dtype option on import or set low_memory=False.
+/Users/javier.diazmejia/asap_repos/spatial-sc-rnaseq-integration-wf/scripts/build_deconv_reference_h5ad.py:169: DtypeWarning: Columns (12,13,16,17,25,28,29,30,33,34,36,37,38,39,40,41,42,43,44,45,46,47,48,49,50,51,52,53,54,55,56,57,58,59,60,61,62,63,69,70,73,74,75,76,77,78,79) have mixed types. Specify dtype option on import or set low_memory=False.
   return pd.read_csv(path, sep=file_type["sep"], compression=file_type["compression"], index_col=0)
 [INFO] Filled 2,827,846 NaN 'source' value(s) as 'asap_cohort' (native cohort cells are unlabelled; only spike-ins carry a source).
   2,948,956 cells total, sources: ['asap_cohort', 'kamath', 'siletti']
-[INFO] obs['batch'] has mixed types (['int', 'str']); coercing non-null values to str.
 [INFO] Sampling cells per source: asap_cohort=200,000, kamath=all, siletti=100,000
   [asap_cohort] 2,827,846 total → sampled 200,000 (block offset 234,537)
   [kamath] 21,557 cells — taking all
@@ -16,40 +15,44 @@
 [INFO] --force-all-da: 33,418 DA-related cells found (['CALB1_CALCR', 'CALB1_CRYM_CCDC68', 'CALB1_GEM', 'CALB1_PPP1R17', 'CALB1_RBP4', 'CALB1_TRHR', 'SOX6_AGTR1', 'SOX6_DDT', 'SOX6_GFRA2', 'SOX6_PART1']); added 11,379 not already selected.
 [INFO] Loading preQC counts per source ...
   [asap_cohort] loading 211,399 cells from /Users/javier.diazmejia/asap_repos/spatial-sc-rnaseq-integration-wf/reference_building/da_neurons_identification_analysis/reference_data/asap_cohort/pmdbs_sc_rnaseq/cohort_analysis/5.0.0/2026-10-19T14-59-48Z/asap-cohort.merged_cleaned_unfiltered.h5ad
+  [asap_cohort] gene ID field: 'gene_id' (100.0% of 38,606 values match Ensembl ID format)
   [INFO] asap_cohort: no layers['counts'] or adata.raw — using adata.X (integer-valued check happens below)
   [asap_cohort] 211,399 cells × 38,606 genes
   [kamath] loading 21,557 cells from /Users/javier.diazmejia/asap_repos/spatial-sc-rnaseq-integration-wf/reference_building/da_neurons_identification_analysis/reference_data/kamath/intermediate/kamath_merged_da_all_non_da_13000_preQC.h5ad
+  [kamath] gene ID field: 'var_names' (100.0% of 33,295 values match Ensembl ID format)
   [kamath] 21,557 cells × 33,295 genes
   [siletti] loading 99,553 cells from /Users/javier.diazmejia/asap_repos/spatial-sc-rnaseq-integration-wf/reference_building/da_neurons_identification_analysis/reference_data/siletti/intermediate/midbrain_da_neurons15000_cells47643_preQC.h5ad
+  [siletti] gene ID field: 'var_names' (100.0% of 58,232 values match Ensembl ID format)
   [siletti] 99,553 cells × 58,232 genes
 [INFO] Computing gene intersection ...
-  6,654 genes in common across 3 sources
+  29,167 genes in common across 3 sources
 [INFO] Subsetting each source to shared gene set ...
-[INFO] Renamed obs columns: {'batch': 'batch_id', 'cell_type': 'cell_type_MMC'}
+[INFO] Renamed obs columns: {'cell_type': 'cell_type_MMC'}
+[INFO] Dropped 49 cells from 19 batches with < 15 cells ('batch_id'). 332,460 cells remaining.
 [INFO] Applying --filter-genes cell2location_u_da ...
-/Users/javier.diazmejia/venv_cda/lib/python3.12/site-packages/pandas/core/arraylike.py:399: RuntimeWarning: divide by zero encountered in log10
+/Users/javier.diazmejia/venv_cell2location/lib/python3.12/site-packages/pandas/core/arraylike.py:399: RuntimeWarning: divide by zero encountered in log10
   result = getattr(ufunc, method)(*inputs, **kwargs)
-/Users/javier.diazmejia/venv_cda/lib/python3.12/site-packages/cell2location/utils/filtering.py:63: UserWarning: FigureCanvasAgg is non-interactive, and thus cannot be shown
+/Users/javier.diazmejia/venv_cell2location/lib/python3.12/site-packages/cell2location/utils/filtering.py:63: UserWarning: FigureCanvasAgg is non-interactive, and thus cannot be shown
   plt.show()
-  cell2location filter_genes: 6,654 → 1,423 genes
+  cell2location filter_genes: 29,167 → 17,396 genes
   + 0 Kamath DA marker gene(s) added back via union (present in the gene intersection but dropped by the cell2location filter)
-  Final gene set: 1,423 genes
-[INFO] Writing 332,509 cells × 1,423 genes to /Users/javier.diazmejia/asap_repos/spatial-sc-rnaseq-integration-wf/reference_building/reference_h5ad/deconvolution_reference_asap200k_kamathAllDAUnCollapsed_Siletti100k.h5ad ...
+  Final gene set: 17,396 genes
+[INFO] Writing 332,460 cells × 17,396 genes to /Users/javier.diazmejia/asap_repos/spatial-sc-rnaseq-integration-wf/reference_building/reference_h5ad/deconvolution_reference_asap200k_kamathAllDAUnCollapsed_Siletti100k.h5ad ...
 [INFO] Combined obs dataframe:
-                                                         source  batch_id cell_type_MMC                   C_scANVI             C_scANVI_final
-CATGCCTAGCGCTCCA-1_DS_PMDBS_0001.ASAP_PMDBS_000...  asap_cohort    Batch5       Unknown                 SOX6_AGTR1                 SOX6_AGTR1
-TCAGATGGTCTCAACA-1_DS_PMDBS_0001.ASAP_PMDBS_000...  asap_cohort    Batch5       Unknown                 SOX6_AGTR1                 SOX6_AGTR1
-TCGCGTTTCCACGACG-1_DS_PMDBS_0001.ASAP_PMDBS_000...  asap_cohort    Batch9       Unknown                   SOX6_DDT                   SOX6_DDT
-TCATTACGTCGCGAAA-1_DS_PMDBS_0001.ASAP_PMDBS_000...  asap_cohort    Batch9       Unknown                   SOX6_DDT                   SOX6_DDT
-CAGCATAGTGCAGTAG-1_DS_PMDBS_0001.ASAP_PMDBS_000...  asap_cohort    Batch7       Unknown                   SOX6_DDT                   SOX6_DDT
-...                                                         ...       ...           ...                        ...                        ...
-siletti_10X377_8:TTTGGTTTCACTACGA                       siletti  10X377_8       Unknown            Oligodendrocyte            Oligodendrocyte
-siletti_10X377_8:TTTGTTGCAACCTATG                       siletti  10X377_8       Unknown            Oligodendrocyte            Oligodendrocyte
-siletti_10X377_8:TTTGTTGCACATGACT                       siletti  10X377_8       Unknown            Oligodendrocyte            Oligodendrocyte
-siletti_10X377_8:TTTGTTGCAGACCATT                       siletti  10X377_8       Unknown            Oligodendrocyte            Oligodendrocyte
-siletti_10X377_8:TTTGTTGTCTTCTCAA                       siletti  10X377_8       Unknown  Oligodendrocyte precursor  Oligodendrocyte precursor
+                                                         source                       batch_id  ...                   C_scANVI             C_scANVI_final
+CATGCCTAGCGCTCCA-1_DS_PMDBS_0001.ASAP_PMDBS_000...  asap_cohort  team-lee_DS_PMDBS_0001_Batch5  ...                 SOX6_AGTR1                 SOX6_AGTR1
+TCAGATGGTCTCAACA-1_DS_PMDBS_0001.ASAP_PMDBS_000...  asap_cohort  team-lee_DS_PMDBS_0001_Batch5  ...                 SOX6_AGTR1                 SOX6_AGTR1
+TCGCGTTTCCACGACG-1_DS_PMDBS_0001.ASAP_PMDBS_000...  asap_cohort  team-lee_DS_PMDBS_0001_Batch9  ...                   SOX6_DDT                   SOX6_DDT
+TCATTACGTCGCGAAA-1_DS_PMDBS_0001.ASAP_PMDBS_000...  asap_cohort  team-lee_DS_PMDBS_0001_Batch9  ...                   SOX6_DDT                   SOX6_DDT
+CAGCATAGTGCAGTAG-1_DS_PMDBS_0001.ASAP_PMDBS_000...  asap_cohort  team-lee_DS_PMDBS_0001_Batch7  ...                   SOX6_DDT                   SOX6_DDT
+...                                                         ...                            ...  ...                        ...                        ...
+siletti_10X377_8:TTTGGTTTCACTACGA                       siletti               siletti_10X377_8  ...            Oligodendrocyte            Oligodendrocyte
+siletti_10X377_8:TTTGTTGCAACCTATG                       siletti               siletti_10X377_8  ...            Oligodendrocyte            Oligodendrocyte
+siletti_10X377_8:TTTGTTGCACATGACT                       siletti               siletti_10X377_8  ...            Oligodendrocyte            Oligodendrocyte
+siletti_10X377_8:TTTGTTGCAGACCATT                       siletti               siletti_10X377_8  ...            Oligodendrocyte            Oligodendrocyte
+siletti_10X377_8:TTTGTTGTCTTCTCAA                       siletti               siletti_10X377_8  ...  Oligodendrocyte precursor  Oligodendrocyte precursor
 
-[332509 rows x 5 columns]
+[332460 rows x 5 columns]
 [INFO] Cell type distribution (C_scANVI):
   Oligodendrocyte: 129,274
   Astrocyte: 37,436
@@ -61,7 +64,7 @@ siletti_10X377_8:TTTGTTGTCTTCTCAA                       siletti  10X377_8       
   Splatter: 10,111
   Midbrain-derived inhibitory: 9,012
   MGE interneuron: 8,679
-  SOX6_DDT: 8,139
+  SOX6_DDT: 8,093
   Medium spiny neuron: 5,470
   Deep-layer intratelencephalic: 4,623
   CALB1_CALCR: 3,633
@@ -88,9 +91,9 @@ siletti_10X377_8:TTTGTTGTCTTCTCAA                       siletti  10X377_8       
   Ependymal: 65
   Hippocampal CA4: 50
   Hippocampal CA1-3: 16
-  Cerebellar inhibitory: 15
   Choroid plexus: 15
-  Bergmann glia: 15
+  Cerebellar inhibitory: 14
+  Bergmann glia: 13
   Mammillary body: 2
 [INFO] Cell type distribution (C_scANVI_final):
   Oligodendrocyte: 129,274
@@ -103,7 +106,7 @@ siletti_10X377_8:TTTGTTGTCTTCTCAA                       siletti  10X377_8       
   Splatter: 10,111
   Midbrain-derived inhibitory: 9,012
   MGE interneuron: 8,679
-  SOX6_DDT: 8,139
+  SOX6_DDT: 8,093
   Medium spiny neuron: 5,470
   Deep-layer intratelencephalic: 4,623
   CALB1_CALCR: 3,633
@@ -130,9 +133,8 @@ siletti_10X377_8:TTTGTTGTCTTCTCAA                       siletti  10X377_8       
   Ependymal: 65
   Hippocampal CA4: 50
   Hippocampal CA1-3: 16
-  Cerebellar inhibitory: 15
   Choroid plexus: 15
-  Bergmann glia: 15
+  Cerebellar inhibitory: 14
+  Bergmann glia: 13
   Mammillary body: 2
 [DONE] /Users/javier.diazmejia/asap_repos/spatial-sc-rnaseq-integration-wf/reference_building/reference_h5ad/deconvolution_reference_asap200k_kamathAllDAUnCollapsed_Siletti100k.h5ad
-[0m
