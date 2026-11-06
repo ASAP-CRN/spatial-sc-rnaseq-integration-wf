@@ -55,7 +55,8 @@ workflow deconvolution {
 	Boolean include_stage2 = sub(run_stages, "2", "x") != run_stages
 	Boolean include_stage3 = sub(run_stages, "3", "x") != run_stages
 
-	# Shared across all 3 cell2location tasks; bumped alongside the cell2location_tools docker image tag.
+	# This is the cell2location_tools docker image tag (threaded into all 3 tasks below) and the
+	# raw-bucket path segment for their outputs -- bump this one value to bump both.
 	String cell2location_version = "1.0.0"
 	String build_reference_raw_data_path = "~{raw_data_path_prefix}/build_reference/~{cell2location_version}"
 	String deconvolute_visium_raw_data_path = "~{raw_data_path_prefix}/deconvolute_visium/~{cell2location_version}"
@@ -74,6 +75,7 @@ workflow deconvolution {
 				workflow_info = workflow_info,
 				billing_project = billing_project,
 				container_registry = container_registry,
+				cell2location_version = cell2location_version,
 				zones = zones
 		}
 	}
@@ -99,6 +101,7 @@ workflow deconvolution {
 					workflow_info = workflow_info,
 					billing_project = billing_project,
 					container_registry = container_registry,
+					cell2location_version = cell2location_version,
 					zones = zones
 			}
 		}
@@ -116,6 +119,7 @@ workflow deconvolution {
 					workflow_info = workflow_info,
 					billing_project = billing_project,
 					container_registry = container_registry,
+					cell2location_version = cell2location_version,
 					zones = zones
 			}
 		}
@@ -135,6 +139,9 @@ workflow deconvolution {
 		String? sc_rnaseq_reference_inf_aver_csv_gz = cell2location_build_reference.inf_aver_csv_gz
 		String? sc_rnaseq_reference_training_history_png = cell2location_build_reference.stage1_ref_training_history_png
 		String? sc_rnaseq_reference_build_timing_tsv = cell2location_build_reference.ref_build_timing_tsv
+		# Exposed so callers (e.g. main.wdl's promotion wiring) can reconstruct this run's raw
+		# output paths without duplicating this constant.
+		String cell2location_version_value = cell2location_version
 	}
 
 	parameter_meta {
@@ -170,6 +177,7 @@ workflow deconvolution {
 		sc_rnaseq_reference_inf_aver_csv_gz: {help: "GCS path to the Cell2location reference signature (<ref_stem>_inf_aver.csv.gz), built once for the whole cohort; null when run_stages excludes Stage 1."}
 		sc_rnaseq_reference_training_history_png: {help: "GCS path to the NB regression (Stage 1) ELBO training-loss plot, built once for the whole cohort; null when run_stages excludes Stage 1."}
 		sc_rnaseq_reference_build_timing_tsv: {help: "GCS path to the per-step timing breakdown (Stage 1 run), built once for the whole cohort; null when run_stages excludes Stage 1."}
+		cell2location_version_value: {help: "Versioned subpath each cell2location task's raw outputs are uploaded under; always populated."}
 	}
 }
 
@@ -189,6 +197,7 @@ task cell2location_build_reference {
 		Array[Array[String]] workflow_info
 		String billing_project
 		String container_registry
+		String cell2location_version
 		String zones
 	}
 
@@ -224,7 +233,7 @@ task cell2location_build_reference {
 	}
 
 	runtime {
-		docker: "~{container_registry}/cell2location_tools:1.0.0"
+		docker: "~{container_registry}/cell2location_tools:~{cell2location_version}"
 		cpu: 8
 		memory: "52 GB"
 		disks: "local-disk " + disk_size + " SSD"
@@ -240,6 +249,7 @@ task cell2location_build_reference {
 		workflow_info: {help: "UTC timestamp, workflow name, workflow version, and GitHub release; stored in the file-level manifest alongside each uploaded output."}
 		billing_project: {help: "GCP billing project for requester-pays bucket access."}
 		container_registry: {help: "Container registry hosting workflow Docker images."}
+		cell2location_version: {help: "cell2location_tools Docker image tag; also the versioned raw-bucket subpath segment."}
 		zones: {help: "GCP zones where compute will run."}
 	}
 }
@@ -262,6 +272,7 @@ task cell2location_cluster_visium {
 		Array[Array[String]] workflow_info
 		String billing_project
 		String container_registry
+		String cell2location_version
 		String zones
 	}
 
@@ -298,7 +309,7 @@ task cell2location_cluster_visium {
 	}
 
 	runtime {
-		docker: "~{container_registry}/cell2location_tools:1.0.0"
+		docker: "~{container_registry}/cell2location_tools:~{cell2location_version}"
 		cpu: 4
 		memory: "16 GB"
 		disks: "local-disk " + disk_size + " SSD"
@@ -311,6 +322,7 @@ task cell2location_cluster_visium {
 		workflow_info: {help: "UTC timestamp, workflow name, workflow version, and GitHub release; stored in the file-level manifest alongside each uploaded output."}
 		billing_project: {help: "GCP billing project for requester-pays bucket access."}
 		container_registry: {help: "Container registry hosting workflow Docker images."}
+		cell2location_version: {help: "cell2location_tools Docker image tag; also the versioned raw-bucket subpath segment."}
 		zones: {help: "GCP zones where compute will run."}
 	}
 }
@@ -334,6 +346,7 @@ task cell2location_deconvolute_visium {
 		Array[Array[String]] workflow_info
 		String billing_project
 		String container_registry
+		String cell2location_version
 		String zones
 	}
 
@@ -373,7 +386,7 @@ task cell2location_deconvolute_visium {
 	}
 
 	runtime {
-		docker: "~{container_registry}/cell2location_tools:1.0.0"
+		docker: "~{container_registry}/cell2location_tools:~{cell2location_version}"
 		cpu: 8
 		memory: "52 GB"
 		disks: "local-disk " + disk_size + " SSD"
@@ -389,6 +402,7 @@ task cell2location_deconvolute_visium {
 		workflow_info: {help: "UTC timestamp, workflow name, workflow version, and GitHub release; stored in the file-level manifest alongside each uploaded output."}
 		billing_project: {help: "GCP billing project for requester-pays bucket access."}
 		container_registry: {help: "Container registry hosting workflow Docker images."}
+		cell2location_version: {help: "cell2location_tools Docker image tag; also the versioned raw-bucket subpath segment."}
 		zones: {help: "GCP zones where compute will run."}
 	}
 }

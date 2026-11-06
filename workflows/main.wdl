@@ -19,7 +19,7 @@ version 1.0
 
 import "structs.wdl"
 import "../wf-common/wdl/tasks/get_workflow_metadata.wdl" as GetWorkflowMetadata
-import "../wf-common/wdl/tasks/upload_final_outputs.wdl" as UploadFinalOutputs #!UnusedImport -- reserved for planned output-upload wiring, not yet implemented
+import "../wf-common/wdl/tasks/upload_final_outputs.wdl" as UploadFinalOutputs
 import "deconvolution/deconvolution.wdl" as Deconvolution
 
 workflow spatial_sc_rnaseq_integration {
@@ -60,6 +60,11 @@ workflow spatial_sc_rnaseq_integration {
 		Int preemptible = 3
 
 		String cohort_raw_data_bucket_spatial_sc_rnaseq
+
+		# Promotion to staging buckets (e.g. DEV/UAT); see parameter_meta below.
+		# Skipped entirely when staging_data_buckets is empty.
+		Array[String] staging_data_buckets = []
+		String crn_release_version = ""
 
 		String container_registry
 		String zones = "us-central1-c us-central1-f"
@@ -111,6 +116,35 @@ workflow spatial_sc_rnaseq_integration {
 			zones = zones
 	}
 
+	# Promote already-completed per-sample deconvolution outputs to one or more staging
+	# buckets (e.g. DEV/UAT). Only Stage 3's clustered h5ad is staged, not Stage 2's.
+	if (length(staging_data_buckets) > 0) {
+		String deconvolution_analysis_release_path = "spatial_visium/release/~{crn_release_version}/deconvolution_analysis"
+
+		scatter (sample in visium_samples) {
+			# Matches deconvolution.wdl's own corrected_sample_id fix (temporary, see that file).
+			String promotion_corrected_sample_id = sub(sample.sample_id, "^ASAP_PMBDS_", "ASAP_PMDBS_")
+			String promotion_cluster_visium_path = "~{raw_data_path_prefix}/cluster_visium/~{deconvolution.cell2location_version_value}"
+
+			String deconvoluted_clustered_adata_path = "~{promotion_cluster_visium_path}/~{promotion_corrected_sample_id}.deconvoluted_clustered.h5ad"
+			String deconvolution_clustering_metadata_csv_path = "~{promotion_cluster_visium_path}/~{promotion_corrected_sample_id}.deconvolution_clustering_metadata.csv.gz"
+			String deconvolution_clustering_timing_tsv_path = "~{promotion_cluster_visium_path}/~{promotion_corrected_sample_id}.timing.tsv"
+		}
+
+		call UploadFinalOutputs.upload_final_outputs as upload_deconvolution_outputs {
+			input:
+				output_file_paths = flatten([
+					deconvoluted_clustered_adata_path,
+					deconvolution_clustering_metadata_csv_path,
+					deconvolution_clustering_timing_tsv_path
+				]),
+				staging_data_buckets = staging_data_buckets,
+				staging_data_path = deconvolution_analysis_release_path,
+				billing_project = get_workflow_metadata.billing_project,
+				zones = zones
+		}
+	}
+
 	output {
 		# Flat over all samples; null when run_stages excludes Stage 2.
 		Array[String?] visium_deconvoluted_adata_objects = deconvolution.visium_deconvoluted_adata_objects
@@ -125,6 +159,8 @@ workflow spatial_sc_rnaseq_integration {
 		String? sc_rnaseq_reference_inf_aver_csv_gz = deconvolution.sc_rnaseq_reference_inf_aver_csv_gz
 		String? sc_rnaseq_reference_training_history_png = deconvolution.sc_rnaseq_reference_training_history_png
 		String? sc_rnaseq_reference_build_timing_tsv = deconvolution.sc_rnaseq_reference_build_timing_tsv
+		# Null when staging_data_buckets is empty (promotion skipped).
+		Array[String]? deconvolution_promotion_manifests = upload_deconvolution_outputs.manifests
 	}
 
 	parameter_meta {
@@ -144,6 +180,8 @@ workflow spatial_sc_rnaseq_integration {
 		run_stages: {help: "Comma-separated subset of {1,2,3} — which stages to run: 1 = build Cell2location inf_aver.csv.gz deconvolution reference, 2 = Cell2location spatial mapping (per sample), 3 = Leiden clustering on deconvolved cell type fractions. ['1,2,3']"}
 		preemptible: {help: "Number of preemptible-VM attempts before Cromwell falls back to on-demand; 0 forces on-demand from the first attempt. [3]"}
 		cohort_raw_data_bucket_spatial_sc_rnaseq: {help: "GCS path to the raw data bucket root; task outputs are uploaded under `<this>/workflow_execution/spatial_visium/deconvolution_analysis/<task_name>/<cell2location_version>`."}
+		staging_data_buckets: {help: "Set of buckets to additionally stage completed per-sample deconvolution outputs to (e.g. DEV and/or UAT), independent of which run_stages ran in this submission. Promotion is skipped entirely when empty. []"}
+		crn_release_version: {help: "Release version (e.g. 'v5.0.0') to stage outputs under; required when staging_data_buckets is non-empty."}
 		container_registry: {help: "Container registry hosting workflow Docker images."}
 		zones: {help: "GCP zones where compute will run. ['us-central1-c us-central1-f']"}
 
@@ -158,5 +196,6 @@ workflow spatial_sc_rnaseq_integration {
 		sc_rnaseq_reference_inf_aver_csv_gz: {help: "GCS path to the Cell2location reference signature (<ref_stem>_inf_aver.csv.gz), built once for the whole cohort; null when run_stages excludes Stage 1."}
 		sc_rnaseq_reference_training_history_png: {help: "GCS path to the NB regression (Stage 1) ELBO training-loss plot, built once for the whole cohort; null when run_stages excludes Stage 1."}
 		sc_rnaseq_reference_build_timing_tsv: {help: "GCS path to the per-step timing breakdown (Stage 1 run), built once for the whole cohort; null when run_stages excludes Stage 1."}
+		deconvolution_promotion_manifests: {help: "GCS paths to the MANIFEST.tsv uploaded to each staging bucket, one per bucket in staging_data_buckets; null when staging_data_buckets is empty."}
 	}
 }
