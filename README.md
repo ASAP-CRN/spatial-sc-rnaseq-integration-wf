@@ -47,7 +47,7 @@ The deconvolution workflow receives processed AnnData objects (`.h5ad`) from the
 
 The Cell2Location deconvolution sub-workflow ([workflows/deconvolution/deconvolution.wdl](workflows/deconvolution/deconvolution.wdl)) runs as three independent WDL tasks/stages, gated by `run_stages`:
 1. **Stage 1 — Reference build**: train a Negative Binomial regression model on the scRNA-seq reference to estimate per-cell-type gene expression signatures (`inf_aver`). Runs **once for all spatial samples**.
-2. **Stage 2 — Spatial mapping**: run Cell2location to map cell type abundances onto Visium spots. Runs once **per Visium sample**, scattered in parallel as chunks of 15 samples to meet the project on-demand NVIDIA T4 GPU quota. Writes `{sample_id}.deconvoluted.h5ad` / `{sample_id}.deconvolution_metadata.csv.gz`.
+2. **Stage 2 — Spatial mapping**: run Cell2location to map cell type abundances onto Visium spots. Runs once **per Visium sample**, submitted in batches of 15 samples in parallel by [scripts/submit_cell2location_2and3_prod.py](scripts/submit_cell2location_2and3_prod.py) to meet the project on-demand NVIDIA T4 GPU quota. Writes `{sample_id}.deconvoluted.h5ad` / `{sample_id}.deconvolution_metadata.csv.gz`.
 3. **Stage 3 — Clustering**: PCA → neighbours → UMAP → Leiden clustering on each spot's **deconvolved cell type fractions** — not on gene expression. Runs once **per Visium sample**, scattered in parallel along stage 2. Writes `{sample_id}.deconvoluted_clustered.h5ad` / `{sample_id}.deconvolution_clustering_metadata.csv.gz`. **Requires Stage 2 in the same submission** — standalone `run_stages` values of `"3"`/`"1,3"` aren't supported.
 
 
