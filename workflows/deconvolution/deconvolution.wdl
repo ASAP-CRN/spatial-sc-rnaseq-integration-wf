@@ -3,7 +3,8 @@ version 1.0
 import "../structs.wdl"
 
 # Reference: downsampled H5AD from the sc-rnaseq-wf cohort_analysis (raw UMI counts).
-# Spatial input: spatial-transcriptomics-wf Visium per-sample post-QC H5ADs.
+# Spatial input: spatial-transcriptomics-wf Visium per-sample cleaned_unfiltered H5ADs
+# (raw UMI counts, all genes--not only HVGs).
 # Deconvolution: Cell2location (GPU)
 
 workflow deconvolution {
@@ -158,7 +159,7 @@ workflow deconvolution {
 		# Inputs
 		sc_rnaseq_reference_adata: {help: "scRNA-seq reference AnnData (.h5ad) used to build the Cell2location inf_aver.csv.gz deconvolution reference; required when run_stages includes Stage 1."}
 		sc_rnaseq_reference_cell2location_model: {help: "Pre-computed inf_aver.csv.gz deconvolution reference; required when run_stages includes Stage 2 without Stage 1."}
-		visium_samples: {help: "Flat list of Visium per-sample adatas (raw UMI counts, post-QC) to deconvolute."}
+		visium_samples: {help: "Flat list of Visium per-sample adatas (raw UMI counts, all genes--not only HVGs, i.e. cleaned_unfiltered) to deconvolute."}
 		batch_key: {help: "Column in reference .obs used as batch covariate in the NB regression model."}
 		cell_type_key: {help: "Column in reference .obs to use as the cell type label."}
 		n_cells_per_spot: {help: "Cell2location N_cells_per_location prior; 8 for brain Visium."}

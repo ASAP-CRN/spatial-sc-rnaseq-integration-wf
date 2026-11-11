@@ -8,8 +8,8 @@ version 1.0
 # alone or supplemented with additional data (e.g. Siletti and/or Kamath cells).
 # See `scripts/build_deconv_reference_h5ad.py` for details.
 #
-# Each spatial sample carries its own per-sample H5AD (raw UMI counts, post-QC) from
-# spatial-transcriptomics-wf.
+# Each spatial sample carries its own per-sample H5AD (raw UMI counts, all genes--not
+# only HVGs, i.e. cleaned_unfiltered) from spatial-transcriptomics-wf.
 #
 # Stage 1: Build the scRNA-seq reference inf_aver file from the H5AD for Cell2location (once per cohort)
 # Stage 2: Deconvolute each spatial sample using the reference inf_aver file with Cell2location (per sample)
@@ -36,7 +36,7 @@ workflow spatial_sc_rnaseq_integration {
 		# Required when run_stages includes Stage 1
 		File? sc_rnaseq_reference_adata
 
-		# spatial-transcriptomics-wf post-QC spatial H5ADs
+		# spatial-transcriptomics-wf cleaned_unfiltered spatial H5ADs (raw UMI counts, all genes--not only HVGs)
 		Array[SpatialVisiumProject] spatial_visium_projects = [] #!UnverifiedStruct -- empty-array default can't be statically verified against the struct type; known miniwdl limitation
 
 		# Pre-computed inf_aver.csv.gz deconvolution reference
