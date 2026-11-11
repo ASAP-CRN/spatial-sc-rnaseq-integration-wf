@@ -50,10 +50,20 @@ workflow deconvolution {
 		String zones
 	}
 
+	call validate_run_stages {
+		input:
+			run_stages = run_stages,
+			preemptible = preemptible,
+			container_registry = container_registry,
+			zones = zones
+	}
+
 	# run_stages (e.g. "2,3"), always single comma-separated digits from {1,2,3}, never multi-digit.
-	Boolean include_stage1 = sub(run_stages, "1", "x") != run_stages
-	Boolean include_stage2 = sub(run_stages, "2", "x") != run_stages
-	Boolean include_stage3 = sub(run_stages, "3", "x") != run_stages
+	# Reading validate_run_stages.validated forces every task gated below to wait for validation
+	# to succeed first, so an unsupported run_stages fails fast instead of launching GPU tasks.
+	Boolean include_stage1 = validate_run_stages.validated && sub(run_stages, "1", "x") != run_stages
+	Boolean include_stage2 = validate_run_stages.validated && sub(run_stages, "2", "x") != run_stages
+	Boolean include_stage3 = validate_run_stages.validated && sub(run_stages, "3", "x") != run_stages
 
 	# This is the cell2location_tools docker image tag (threaded into all 3 tasks below) and the
 	# raw-bucket path segment for their outputs -- bump this one value to bump both.
@@ -178,6 +188,84 @@ workflow deconvolution {
 		sc_rnaseq_reference_training_history_png: {help: "GCS path to the NB regression (Stage 1) ELBO training-loss plot, built once for the whole cohort; null when run_stages excludes Stage 1."}
 		sc_rnaseq_reference_build_timing_tsv: {help: "GCS path to the per-step timing breakdown (Stage 1 run), built once for the whole cohort; null when run_stages excludes Stage 1."}
 		cell2location_version_value: {help: "Versioned subpath each cell2location task's raw outputs are uploaded under; always populated."}
+	}
+}
+
+task validate_run_stages {
+	meta {
+		description: "Fail fast if run_stages is not a supported comma-separated subset of {1,2,3}"
+	}
+
+	input {
+		String run_stages
+		Int preemptible
+
+		String container_registry
+		String zones
+	}
+
+	command <<<
+		set -euo pipefail
+
+		run_stages="~{run_stages}"
+		if [[ -n "${run_stages}" ]]; then
+			has1=0
+			has2=0
+			has3=0
+			IFS=',' read -ra stages <<< "${run_stages}"
+			for stage in "${stages[@]}"; do
+				stage="$(echo "${stage}" | xargs)"
+				case "${stage}" in
+					1)
+						if [[ ${has1} -eq 1 ]]; then
+							echo "[ERROR] run_stages=\"${run_stages}\" has duplicate stage 1." >&2
+							exit 1
+						fi
+						has1=1
+						;;
+					2)
+						if [[ ${has2} -eq 1 ]]; then
+							echo "[ERROR] run_stages=\"${run_stages}\" has duplicate stage 2." >&2
+							exit 1
+						fi
+						has2=1
+						;;
+					3)
+						if [[ ${has3} -eq 1 ]]; then
+							echo "[ERROR] run_stages=\"${run_stages}\" has duplicate stage 3." >&2
+							exit 1
+						fi
+						has3=1
+						;;
+					*)
+						echo "[ERROR] run_stages=\"${run_stages}\" contains unsupported value \"${stage}\"; must be a comma-separated subset of {1,2,3}." >&2
+						exit 1
+						;;
+				esac
+			done
+			if [[ ${has3} -eq 1 && ${has2} -eq 0 ]]; then
+				echo "[ERROR] run_stages=\"${run_stages}\" includes Stage 3 without Stage 2 in the same submission -- not currently supported." >&2
+				exit 1
+			fi
+		fi
+	>>>
+
+	output {
+		Boolean validated = true
+	}
+
+	runtime {
+		docker: "~{container_registry}/util:1.2.0"
+		cpu: 1
+		memory: "1 GB"
+		preemptible: preemptible
+		zones: zones
+	}
+
+	parameter_meta {
+		run_stages: {help: "Comma-separated subset of {1,2,3} to validate before any downstream task runs. Empty string is valid (promotion-only submissions)."}
+		container_registry: {help: "Container registry hosting workflow Docker images."}
+		zones: {help: "GCP zones where compute will run."}
 	}
 }
 
