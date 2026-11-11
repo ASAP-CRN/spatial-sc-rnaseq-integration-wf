@@ -897,7 +897,7 @@ def _parse_args() -> argparse.Namespace:
     general.add_argument("--write-h5ad",                  action=argparse.BooleanOptionalAction, default=True,
         help="Write the per-sample `.h5ad` output in addition to the metadata CSV.\n"
              "Use --no-write-h5ad to write only the metadata CSV. Has no effect in Stage-1-only mode.\n"
-             "Default: True"),
+             "Default: True")
     general.add_argument("--seed",                        type=int, default=_SEED,
         help="Random seed for same system torch/numpy/scvi-tools training.\n"
              f"Default: {_SEED}")
