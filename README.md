@@ -70,6 +70,7 @@ Input templates can be found at [Input JSON's](#input-jsons).
 | cohort_raw_data_bucket_spatial_sc_rnaseq | String | Raw data bucket root where outfiles are uploaded. | ✓ | ✓ | ✓ |
 | container_registry | String | Container registry where workflow Docker images are hosted. | ✓ | ✓ | ✓ |
 | zones | String? | GCP zones where compute takes place. ['us-central1-c us-central1-f'] | ✓ | ✓ | ✓ |
+| preemptible | Int? | Number of preemptible-VM attempts before Cromwell falls back to on-demand; `0` forces on-demand. Production runs use `0` because GPU spot availability was unpredictable and kept failing using `3`. [3] | ✓ | ✓ | - |
 | batch_key | String? | Column in reference .obs used as batch covariate in the NB regression model. ['batch_id'] | ✓ | - | - |
 | cell_type_key | String? | Column in reference .obs to use as the cell type label. ['cell_type_pred'] | ✓ | - | - |
 | sc_rnaseq_reference_adata | File? | scRNA-seq reference AnnData; used to deconvolute all spatial samples. Required when `run_stages` includes Stage 1. | ✓ | - | - |
