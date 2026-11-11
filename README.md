@@ -115,6 +115,8 @@ One Visium sample, with raw UMI counts and all genes--not only HVGs from [spatia
 There are three kinds of JSON used in this repo. Those used for the ASAP CRN release v6.0.0 are:
 
 - **Stage 1 — Reference build**: [prod_runs/submit_cell2location_1_prod_config.json](prod_runs/submit_cell2location_1_prod_config.json).
+  - Copies of the reference h5ad and inf_aver reference files were stored here:     
+  `gs://asap-raw-team-scherzer-pmdbs-spatial-visium-mtg/workflow_execution/spatial_visium/deconvolution_analysis/build_reference/`
 - **Stages 2 & 3 — Spatial mapping & clustering**: submit batches of 15 spatial samples: [prod_runs/submit_cell2location_2and3_prod_config.json](prod_runs/submit_cell2location_2and3_prod_config.json).
 - **Data promotion**: raw → dev/uat: [prod_runs/promote_raw_to_dev_uat_v6.0.0_all95samples.json](prod_runs/promote_raw_to_dev_uat_v6.0.0_all95samples.json).
 
