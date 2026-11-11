@@ -20,6 +20,7 @@ by the time a notebook calls it, this module is already imported.
 
 import colorsys
 import importlib.util
+import subprocess
 
 import ipywidgets as widgets
 import matplotlib.pyplot as plt
@@ -61,6 +62,70 @@ def get_repo_root(repo_name):
         for p in (base, base / repo_name)
         if (p / ".git").exists()
     )
+
+
+def ensure_cached(gcs_dir, local_dir, filename):
+    """
+    Return the local cache path for `filename`, downloading it from `gcs_dir`
+    first if not already cached under `local_dir`.
+
+    Parameters
+    ----------
+    gcs_dir : str
+        GCS directory `filename` lives under.
+    local_dir : str
+        Local cache directory to check/write `filename` under.
+    filename : str
+        Basename of the file under `gcs_dir` (e.g. a `*.h5ad`).
+
+    Returns
+    -------
+    pathlib.Path
+        Local path to the (now-guaranteed-present) cached file.
+    """
+    local_path = Path(local_dir, filename)
+    if not local_path.exists():
+        local_path.parent.mkdir(parents=True, exist_ok=True)
+        subprocess.run(
+            ["gcloud", "storage", "cp", f"{gcs_dir}/{filename}", str(local_path)],
+            check=True,
+        )
+    return local_path
+
+
+def list_available_and_cached(gcs_dir, local_dir, suffix):
+    """
+    List sample names found under a GCS directory, partitioned by whether
+    each is already cached locally.
+
+    Parameters
+    ----------
+    gcs_dir : str
+        GCS directory to list (e.g. a `*_DATASET_GCS_DIR`).
+    local_dir : str
+        Local cache directory to check each sample against.
+    suffix : str
+        Filename suffix shared by every sample under `gcs_dir` (e.g.
+        ".cleaned_unfiltered.h5ad"), stripped to recover each sample's name.
+
+    Returns
+    -------
+    tuple of list of str
+        available : every sample name found under `gcs_dir`, sorted.
+        cached : the subset of `available` already present under `local_dir`.
+        missing : the rest of `available`.
+    """
+    ls = subprocess.run(
+        ["gcloud", "storage", "ls", f"{gcs_dir}/*{suffix}"],
+        capture_output=True, text=True,
+    )
+    available = sorted(
+        Path(line.strip()).name.removesuffix(suffix)
+        for line in ls.stdout.splitlines() if line.strip()
+    )
+    cached = [s for s in available if Path(local_dir, s + suffix).exists()]
+    missing = [s for s in available if s not in set(cached)]
+    return available, cached, missing
 
 BIG_DROPDOWN_CSS = """
 <style>
@@ -554,6 +619,27 @@ def selected_cell_types(cell_types, cell_types_, view, da_uber_categories):
     return list(cell_types_sel), list(cell_types_sel_)
 
 
+def ensure_uber_colors(cols, uber_palette):
+    """
+    Extend `uber_palette` in place with any uber category in `cols` not
+    already covered.
+
+    Parameters
+    ----------
+    cols : iterable of str
+        Fine-grained cell type names (e.g. a load's `cell_types_`).
+    uber_palette : dict
+        Uber category (from `coarse_category`) to colour, extended in place.
+
+    Returns
+    -------
+    None
+    """
+    missing = sorted({coarse_category(c) for c in cols} - set(uber_palette))
+    if missing:
+        uber_palette.update(golden_angle_palette(list(uber_palette) + missing))
+
+
 def colorize_label_html(label, prefixes, color="red"):
     """Wrap `label` in a coloured HTML `<span>` if it starts with any of `prefixes`."""
     if str(label).startswith(tuple(prefixes)):
@@ -764,25 +850,30 @@ def spatial_scatter_grid(
     cmap="magma", vmin=0, vmax_percentile=99.2, vmax_floor=None,
     ncols=4, size=1.3, img_res_key="hires",
     title_color_fn=None,
+    shared_vmax=False,
 ):
     """
     Grid of spatial scatter panels, cropped to the tissue's own spot extent.
 
     One panel per entry in `columns` -- each is both the `color=` argument to
     `squidpy.pl.spatial_scatter` (an `.obs` column or a gene/var name --
-    squidpy resolves either) and the source of that panel's own vmax.
+    squidpy resolves either) and (unless `shared_vmax`) the source of that
+    panel's own vmax. An entry of `None` renders a plain tissue-only panel
+    instead (no color overlay, no vmax computed) -- pass an explicit string in
+    the matching position of `titles` for it (e.g. "Tissue only"), since
+    there's no column/gene name to fall back to.
 
     Parameters
     ----------
     adata : anndata.AnnData
         Must have `obsm['spatial']` and `uns['spatial']` (Visium scale factors).
-    columns : list of str
-        One panel per entry.
+    columns : list of str or None
+        One panel per entry; `None` renders a tissue-only panel.
     titles : list of str or None
         Panel titles, same length/order as `columns`. Defaults to `columns`
         (pass a separate list if a panel's display title differs from its
         underlying column/gene name, e.g. a column copied into `.obs` under
-        a prefixed key).
+        a prefixed key, or any `None` entries in `columns`).
     cmap : str
         Colormap.
     vmin : float or None
@@ -790,7 +881,8 @@ def spatial_scatter_grid(
         0 by default to avoid squidpy falling back to each column's own
         minimum. Pass None to restore squidpy's own default.
     vmax_percentile : float
-        Percentile (of non-NaN values) used as each panel's own vmax.
+        Percentile (of non-NaN values) used as the vmax -- each panel's own
+        values if `shared_vmax` is False, the pooled values of all panels if True.
     vmax_floor : float or None
         Minimum vmax -- sparse columns can have a near-zero percentile that
         saturates the panel to a single flat colour; floor it if given.
@@ -803,6 +895,15 @@ def spatial_scatter_grid(
     title_color_fn : callable or None
         `title_color_fn(column) -> colour`, applied to each panel's title.
         None (default) skips title colouring.
+    shared_vmax : bool
+        False (default) scales each panel independently from its own values --
+        appropriate when panels are on genuinely different scales (e.g.
+        different genes). True computes ONE vmax from all panels' pooled
+        values and applies it everywhere -- needed when panels should stay
+        visually comparable in absolute magnitude (e.g. q05 cell-type
+        abundance across cell types): independent per-panel scaling can make
+        a cell type whose true values are tiny (e.g. max 0.05) look just as
+        "hot" as one whose true values are much larger (e.g. max 8.5).
 
     Returns
     -------
@@ -818,7 +919,9 @@ def spatial_scatter_grid(
     library_id = list(adata.uns["spatial"].keys())[0]
     scalef = adata.uns["spatial"][library_id]["scalefactors"][f"tissue_{img_res_key}_scalef"]
     coords = adata.obsm["spatial"] * scalef
-    (x_min, y_min), (x_max, y_max) = coords.min(axis=0), coords.max(axis=0)
+    # nanmin/nanmax: a single spot with a NaN coordinate (seen in real data) would
+    # otherwise poison the whole crop computation via plain min/max.
+    (x_min, y_min), (x_max, y_max) = np.nanmin(coords, axis=0), np.nanmax(coords, axis=0)
     x_pad, y_pad = (x_max - x_min) * 0.05, (y_max - y_min) * 0.05
 
     # Close any figures left open by a previous call -- squidpy's colorbar/legend
@@ -831,22 +934,40 @@ def spatial_scatter_grid(
     fig, axs = plt.subplots(nrows, ncols, figsize=(4 * ncols, 4 * nrows))
     axs = np.atleast_1d(axs).ravel()
 
-    for ax, column, title in zip(axs, columns, titles):
+    column_values = {}
+    for column in columns:
+        if column is None:
+            continue
         if column in adata.obs.columns:
             values = adata.obs[column].values
         else:
             values = adata[:, column].X
             values = values.toarray() if hasattr(values, "toarray") else np.asarray(values)
-        vmax = np.nanpercentile(values, vmax_percentile)
+        column_values[column] = np.asarray(values).flatten()
+
+    shared_vmax_value = None
+    if shared_vmax and column_values:
+        shared_vmax_value = np.nanpercentile(np.concatenate(list(column_values.values())), vmax_percentile)
         if vmax_floor is not None:
-            vmax = max(vmax, vmax_floor)
-        sq.pl.spatial_scatter(
-            adata, color=column, cmap=cmap, vmin=vmin, vmax=vmax, size=size,
-            img_res_key=img_res_key, title=title, ax=ax,
-        )
+            shared_vmax_value = max(shared_vmax_value, vmax_floor)
+
+    for ax, column, title in zip(axs, columns, titles):
+        if column is None:
+            sq.pl.spatial_scatter(adata, color=None, size=size, img_res_key=img_res_key, title=title, ax=ax)
+        else:
+            if shared_vmax:
+                vmax = shared_vmax_value
+            else:
+                vmax = np.nanpercentile(column_values[column], vmax_percentile)
+                if vmax_floor is not None:
+                    vmax = max(vmax, vmax_floor)
+            sq.pl.spatial_scatter(
+                adata, color=column, cmap=cmap, vmin=vmin, vmax=vmax, size=size,
+                img_res_key=img_res_key, title=title, ax=ax,
+            )
         ax.set_xlim(x_min - x_pad, x_max + x_pad)
         ax.set_ylim(y_max + y_pad, y_min - y_pad)
-        if title_color_fn is not None:
+        if title_color_fn is not None and column is not None:
             ax.title.set_color(title_color_fn(column))
 
     for ax in axs[len(columns):]:
@@ -854,6 +975,111 @@ def spatial_scatter_grid(
 
     plt.tight_layout()
     return fig
+
+
+def spatial_plot_genes(
+    adata, genes, sample_name,
+    mode="raw_and_norm",
+    cmap="viridis",
+    normalize_target_sum=1e4,
+    raw_vmax_floor=1,
+    norm_vmax_floor=0.01,
+    ncols=6,
+):
+    """
+    Render spatial scatter figure(s) for a gene list -- raw UMI counts and/or
+    log1p-normalized expression -- via `spatial_scatter_grid`, raw first.
+
+    Mutates `adata` in place: each plotted gene's values are copied into
+    `.obs` under a value-type-suffixed key (e.g. "TH (raw UMI)"), and if
+    `mode` includes "norm", `.X` is overwritten via `sc.pp.normalize_total`/
+    `sc.pp.log1p` -- this affects ALL genes in `adata`, not just those plotted.
+
+    Parameters
+    ----------
+    adata : anndata.AnnData
+        Loaded spatial sample with raw counts in `.X` and `obsm['spatial']`/
+        `uns['spatial']` (Visium scale factors).
+    genes : list of str
+        Gene symbols to plot.
+    sample_name : str
+        Sample name, used only for the missing-gene warning message.
+    mode : str
+        One of "raw", "norm", "raw_and_norm" (default) -- which figure(s) to render.
+    cmap : str
+        Colormap, forwarded to `spatial_scatter_grid`.
+    normalize_target_sum : float
+        `target_sum` forwarded to `sc.pp.normalize_total`. Only used if `mode`
+        includes "norm".
+    raw_vmax_floor : float
+        `vmax_floor` for the raw-UMI figure. Raw counts are integers, so a
+        floor around 1 avoids a degenerate near-zero colour scale on sparse
+        samples.
+    norm_vmax_floor : float
+        `vmax_floor` for the log1p-normalized figure. Normalized values are
+        small fractions, so a floor around 0.01 is appropriate instead --
+        sharing one floor between both value types collapses them to the
+        same degenerate scale on sparse samples.
+    ncols : int
+        Panels per row (including the leading "Tissue only" panel), forwarded
+        to `spatial_scatter_grid`. Default 6 fits the common case -- Tissue
+        only + the 4 Pan-DA markers + one more (e.g. a highly-expressed
+        control gene) -- in a single row; longer gene lists wrap to extra
+        rows instead of squeezing every panel into one row.
+
+    Returns
+    -------
+    None
+    """
+    if mode not in ("raw", "norm", "raw_and_norm"):
+        raise ValueError(f'mode must be one of "raw", "norm", "raw_and_norm" -- got {mode!r}')
+
+    adata.var_names_make_unique()
+
+    genes_present = [g for g in genes if g in adata.var_names]
+    genes_missing = [g for g in genes if g not in adata.var_names]
+    if genes_missing:
+        print(f"WARNING: {len(genes_missing)} gene(s) not in {sample_name}'s gene panel: {genes_missing}")
+
+    need_raw = mode in ("raw", "raw_and_norm")
+    need_norm = mode in ("norm", "raw_and_norm")
+
+    raw_columns = []
+    if need_raw:
+        for gene in genes_present:
+            raw_vals = adata[:, gene].X
+            raw_vals = raw_vals.toarray().flatten() if hasattr(raw_vals, "toarray") else raw_vals.flatten()
+            raw_col = f"{gene} (raw UMI)"
+            adata.obs[raw_col] = raw_vals
+            raw_columns.append(raw_col)
+
+        fig_raw = spatial_scatter_grid(
+            adata, [None] + raw_columns, titles=["Tissue only"] + raw_columns,
+            cmap=cmap, vmax_floor=raw_vmax_floor, ncols=ncols,
+        )
+        if fig_raw is not None:
+            display(fig_raw)
+            plt.close(fig_raw)
+
+    if need_norm:
+        sc.pp.normalize_total(adata, target_sum=normalize_target_sum)
+        sc.pp.log1p(adata)
+
+        norm_columns = []
+        for gene in genes_present:
+            norm_vals = adata[:, gene].X
+            norm_vals = norm_vals.toarray().flatten() if hasattr(norm_vals, "toarray") else norm_vals.flatten()
+            norm_col = f"{gene} (norm log1p)"
+            adata.obs[norm_col] = norm_vals
+            norm_columns.append(norm_col)
+
+        fig_norm = spatial_scatter_grid(
+            adata, [None] + norm_columns, titles=["Tissue only"] + norm_columns,
+            cmap=cmap, vmax_floor=norm_vmax_floor, ncols=ncols,
+        )
+        if fig_norm is not None:
+            display(fig_norm)
+            plt.close(fig_norm)
 
 
 def plot_umaps_by_gene(
