@@ -29,6 +29,7 @@ from utils.logging_extra import log_run_command
 _DEFAULT_OUTDIR = "prod_runs"
 _DEFAULT_CELL2LOCATION_VERSION = "1.0.0"
 _WORKFLOW_PARAM_PREFIX = "spatial_sc_rnaseq_integration."
+_META_FIELDS = ("workflow_id", "workflow_version_name")
 
 
 def _resolve_repo_path(path: str) -> str:
@@ -49,15 +50,15 @@ def _resolve_repo_path(path: str) -> str:
     return str(p if p.is_absolute() else (repo_root / p).resolve())
 
 
-def _build_reference_gcs_path(config: dict, cell2location_version: str) -> str:
+def _build_reference_gcs_path(workflow_params: dict, cell2location_version: str) -> str:
     """
     Build the expected GCS path for Stage 1's inf_aver.csv.gz output, matching
     deconvolution.wdl's own raw_data_path construction.
 
     Parameters
     ----------
-    config : dict
-        Parsed --input-json workflow-params (spatial_sc_rnaseq_integration.-prefixed).
+    workflow_params : dict
+        spatial_sc_rnaseq_integration.-prefixed workflow-params (meta fields stripped).
     cell2location_version : str
         Must match deconvolution.wdl's own cell2location_version constant.
 
@@ -66,8 +67,8 @@ def _build_reference_gcs_path(config: dict, cell2location_version: str) -> str:
     str
         GCS path to the expected inf_aver.csv.gz file.
     """
-    bucket = config[f"{_WORKFLOW_PARAM_PREFIX}cohort_raw_data_bucket_spatial_sc_rnaseq"].rstrip("/")
-    ref_adata = config[f"{_WORKFLOW_PARAM_PREFIX}sc_rnaseq_reference_adata"]
+    bucket = workflow_params[f"{_WORKFLOW_PARAM_PREFIX}cohort_raw_data_bucket_spatial_sc_rnaseq"].rstrip("/")
+    ref_adata = workflow_params[f"{_WORKFLOW_PARAM_PREFIX}sc_rnaseq_reference_adata"]
     ref_stem = Path(ref_adata).name.removesuffix(".h5ad")
     return (
         f"{bucket}/workflow_execution/spatial_visium/deconvolution_analysis/"
@@ -104,7 +105,7 @@ def submit_run(params_json: Path, workflow_id: str, workflow_version_name: str, 
     workflow_id : str
         Workbench workflow ID (e.g. from `omics workbench workflows create`).
     workflow_version_name : str
-        Workbench workflow registration version (e.g. "v1.0.1").
+        Workbench workflow registration version (e.g. "v1.0.3").
     promote : bool
         If False, print the command instead of running it.
 
@@ -130,7 +131,7 @@ def submit_run(params_json: Path, workflow_id: str, workflow_version_name: str, 
 
 
 def main(
-    config: dict,
+    workflow_params: dict,
     outdir: str,
     workflow_id: str,
     workflow_version_name: str,
@@ -144,8 +145,9 @@ def main(
 
     Parameters
     ----------
-    config : dict
-        Parsed --input-json workflow-params (spatial_sc_rnaseq_integration.-prefixed).
+    workflow_params : dict
+        spatial_sc_rnaseq_integration.-prefixed workflow-params (meta fields stripped);
+        written to disk and submitted as-is.
     outdir : str
         Directory the submitted JSON is written under (a run-timestamp subdir is added).
     workflow_id : str
@@ -168,7 +170,7 @@ def main(
         print("[ERROR] 'gcloud' CLI not found on PATH; required to check for an existing reference.")
         sys.exit(1)
 
-    expected_gcs_path = _build_reference_gcs_path(config, cell2location_version)
+    expected_gcs_path = _build_reference_gcs_path(workflow_params, cell2location_version)
     print(f"[INFO] Checking for an existing reference at {expected_gcs_path} ...")
     if _gcs_object_exists(expected_gcs_path):
         if not force:
@@ -184,7 +186,7 @@ def main(
     run_dir.mkdir(parents=True, exist_ok=True)
     params_json = run_dir / "stage1.json"
     with open(params_json, "w") as f:
-        json.dump(config, f, indent=2)
+        json.dump(workflow_params, f, indent=2)
     print(f"[INFO] Wrote {params_json}")
 
     submit_run(params_json, workflow_id, workflow_version_name, promote)
@@ -201,19 +203,11 @@ if __name__ == "__main__":
     parser.add_argument(
         "-i", "--input-json",
         required=True,
-        help="Path to a complete spatial_sc_rnaseq_integration workflow-params JSON for\n"
-             "Stage 1 (fully-prefixed keys), e.g. prod_runs/submit_cell2location_1_prod_config.json.\n"
-             f"Must set {_WORKFLOW_PARAM_PREFIX}run_stages to \"1\".",
-    )
-    parser.add_argument(
-        "--workflow-id",
-        required=True,
-        help="Workbench workflow ID (from `omics workbench workflows create`).",
-    )
-    parser.add_argument(
-        "--workflow-version-name",
-        required=True,
-        help="Workbench workflow version to submit against (e.g. 'v1.0.1').",
+        help="Path to Stage 1's config JSON: a complete spatial_sc_rnaseq_integration\n"
+             "workflow-params JSON for Stage 1, e.g. prod_runs/submit_cell2location_1_prod_config.json.\n"
+             f"Must set {_WORKFLOW_PARAM_PREFIX}run_stages to \"1\".\n"
+             "workflow_id/workflow_version_name are passed to the omics CLI as params,\n"
+             "not included in the final JSON.",
     )
     parser.add_argument(
         "--outdir",
@@ -249,6 +243,7 @@ if __name__ == "__main__":
         parser.error(f"{args.input_json} JSON file does not exist.")
 
     required_fields = [
+        *_META_FIELDS,
         f"{_WORKFLOW_PARAM_PREFIX}sc_rnaseq_reference_adata",
         f"{_WORKFLOW_PARAM_PREFIX}cohort_raw_data_bucket_spatial_sc_rnaseq",
         f"{_WORKFLOW_PARAM_PREFIX}container_registry",
@@ -264,13 +259,17 @@ if __name__ == "__main__":
             f"(got: {run_stages!r}) -- this script is Stage 1 only."
         )
 
+    workflow_id = config["workflow_id"]
+    workflow_version_name = config["workflow_version_name"]
+    workflow_params = {k: v for k, v in config.items() if k not in _META_FIELDS}
+
     outdir = _resolve_repo_path(args.outdir)
     log_run_command(Path(outdir) / "submit_cell2location_1_prod.log")
     main(
-        config=config,
+        workflow_params=workflow_params,
         outdir=outdir,
-        workflow_id=args.workflow_id,
-        workflow_version_name=args.workflow_version_name,
+        workflow_id=workflow_id,
+        workflow_version_name=workflow_version_name,
         cell2location_version=args.cell2location_version,
         force=args.force,
         promote=args.promote,

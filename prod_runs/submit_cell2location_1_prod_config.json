@@ -1,4 +1,7 @@
 {
+  "workflow_id": "865c2967-9af8-499d-9b70-aa10db6c49da",
+  "workflow_version_name": "v1.0.3",
+
   "spatial_sc_rnaseq_integration.sc_rnaseq_reference_adata": "gs://asap-wdl-ci/workflow_execution/spatial_sc_rnaseq_integration/reference_building/reference_h5ad/strategy_3/deconvolution_reference_strategy3.h5ad",
 
   "spatial_sc_rnaseq_integration.batch_key": "batch_id",

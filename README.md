@@ -211,8 +211,6 @@ Afterwards, production runs are submitted as follows:
   ```bash
   scripts/submit_cell2location_1_prod.py \
       --input-json prod_runs/submit_cell2location_1_prod_config.json \
-      --workflow-id 865c2967-9af8-499d-9b70-aa10db6c49da \
-      --workflow-version-name v1.0.1 \
       --promote
   ```
 
@@ -231,6 +229,6 @@ Afterwards, production runs are submitted as follows:
   ```bash
   omics workbench runs submit \
       --workflow 865c2967-9af8-499d-9b70-aa10db6c49da \
-      --version v1.0.2 \
+      --version v1.0.3 \
       --workflow-params @prod_runs/promote_raw_to_dev_uat_v6.0.0_all95samples.json
   ```
