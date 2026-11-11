@@ -158,7 +158,7 @@ workflow deconvolution {
 		n_comps: {help: "PCA components for clustering on deconvolved cell type fractions (Stage 3)."}
 		n_neighbors: {help: "Neighbourhood size for clustering on deconvolved cell type fractions (Stage 3)."}
 		leiden_res: {help: "Leiden resolutions for clustering on deconvolved cell type fractions (Stage 3); one clustering per resolution."}
-		run_stages: {help: "Comma-separated subset of {1,2,3} — which stages to run: 1 = build Cell2location inf_aver.csv.gz deconvolution reference, 2 = Cell2location spatial mapping (per sample), 3 = Leiden clustering on deconvolved cell type fractions."}
+		run_stages: {help: "Comma-separated subset of {1,2,3} — which stages to run: 1 = build Cell2location inf_aver.csv.gz deconvolution reference, 2 = Cell2location spatial mapping (per sample), 3 = Leiden clustering on deconvolved cell type fractions. Stage 3 requires Stage 2 in the same submission -- standalone \"3\" or \"1,3\" are not supported."}
 		preemptible: {help: "Number of preemptible-VM attempts before Cromwell falls back to on-demand; 0 forces on-demand from the first attempt."}
 		raw_data_path_prefix: {help: "Raw data bucket path prefix; each task's outputs are uploaded to its own versioned subpath below this prefix (`<raw_data_path_prefix>/<task_name>/<cell2location_version>`)."}
 		workflow_info: {help: "UTC timestamp, workflow name, workflow version, and GitHub release; stored in the file-level manifest alongside each uploaded output."}

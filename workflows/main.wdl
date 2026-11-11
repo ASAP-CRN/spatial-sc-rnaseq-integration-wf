@@ -177,7 +177,7 @@ workflow spatial_sc_rnaseq_integration {
 		n_comps: {help: "PCA components for clustering on deconvolved cell type fractions (Stage 3). [30]"}
 		n_neighbors: {help: "Neighbourhood size for clustering on deconvolved cell type fractions (Stage 3). [15]"}
 		leiden_res: {help: "Leiden resolutions for clustering on deconvolved cell type fractions (Stage 3); one clustering per resolution. [0.2, 0.5, 1.0]"}
-		run_stages: {help: "Comma-separated subset of {1,2,3} — which stages to run: 1 = build Cell2location inf_aver.csv.gz deconvolution reference, 2 = Cell2location spatial mapping (per sample), 3 = Leiden clustering on deconvolved cell type fractions. ['1,2,3']"}
+		run_stages: {help: "Comma-separated subset of {1,2,3} — which stages to run: 1 = build Cell2location inf_aver.csv.gz deconvolution reference, 2 = Cell2location spatial mapping (per sample), 3 = Leiden clustering on deconvolved cell type fractions. Stage 3 requires Stage 2 in the same submission -- standalone \"3\" or \"1,3\" are not supported. ['1,2,3']"}
 		preemptible: {help: "Number of preemptible-VM attempts before Cromwell falls back to on-demand; 0 forces on-demand from the first attempt. [3]"}
 		cohort_raw_data_bucket_spatial_sc_rnaseq: {help: "GCS path to the raw data bucket root; task outputs are uploaded under `<this>/workflow_execution/spatial_visium/deconvolution_analysis/<task_name>/<cell2location_version>`."}
 		staging_data_buckets: {help: "Set of buckets to additionally stage completed per-sample deconvolution outputs to (e.g. DEV and/or UAT), independent of which run_stages ran in this submission. Promotion is skipped entirely when empty. []"}
