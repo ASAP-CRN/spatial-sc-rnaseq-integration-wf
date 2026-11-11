@@ -1,0 +1,13 @@
+{
+  "spatial_sc_rnaseq_integration.sc_rnaseq_reference_adata": "gs://asap-wdl-ci/workflow_execution/spatial_sc_rnaseq_integration/reference_building/reference_h5ad/strategy_3/deconvolution_reference_strategy3.h5ad",
+
+  "spatial_sc_rnaseq_integration.batch_key": "batch_id",
+  "spatial_sc_rnaseq_integration.cell_type_key": "harmonized_cell_type_siletti_allen",
+
+  "spatial_sc_rnaseq_integration.run_stages": "1",
+
+  "spatial_sc_rnaseq_integration.preemptible": 0,
+
+  "spatial_sc_rnaseq_integration.cohort_raw_data_bucket_spatial_sc_rnaseq": "gs://asap-raw-team-scherzer-pmdbs-spatial-visium-mtg",
+  "spatial_sc_rnaseq_integration.container_registry": "us-central1-docker.pkg.dev/dnastack-asap-parkinsons/workflow-images"
+}
