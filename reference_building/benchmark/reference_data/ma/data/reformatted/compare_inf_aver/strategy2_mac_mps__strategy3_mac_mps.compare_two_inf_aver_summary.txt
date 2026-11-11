@@ -1,0 +1,11 @@
+File 1 (strategy2_mac_mps): reference_building/benchmark/reference_data/ma/data/reformatted/cell2location_Strategy2/deconvolution_reference_asap200k_kamathAllDAUnCollapsed_Siletti100k_inf_aver.csv.gz
+File 2 (strategy3_mac_mps): reference_building/benchmark/reference_data/ma/data/reformatted/cell2location_Strategy3/deconvolution_reference_strategy3_inf_aver.csv.gz
+
+Rows    -- file 1: 17,383  file 2: 17,398  shared: 16,803  only-in-1: 580  only-in-2: 595
+Columns -- file 1: 38  file 2: 40  shared: 38  only-in-1: 0  only-in-2: 2
+  Rows only in file 1: ENSG00000007312, ENSG00000015568, ENSG00000019186, ENSG00000030110, ENSG00000036473, ENSG00000039600, ENSG00000051180, ENSG00000058085, ENSG00000062524, ENSG00000065328, ENSG00000070388, ENSG00000073861, ENSG00000075702, ENSG00000077009, ENSG00000077935, ENSG00000078900, ENSG00000080031, ENSG00000083622, ENSG00000087510, ENSG00000088305, ... and 560 more
+  Rows only in file 2: ENSG00000002933, ENSG00000004776, ENSG00000011590, ENSG00000024422, ENSG00000048162, ENSG00000049247, ENSG00000049283, ENSG00000053702, ENSG00000061492, ENSG00000064666, ENSG00000065618, ENSG00000069011, ENSG00000077150, ENSG00000080986, ENSG00000084734, ENSG00000085741, ENSG00000086506, ENSG00000088882, ENSG00000089723, ENSG00000090924, ... and 575 more
+  Columns only in file 2: Bergmann glia, Cerebellar inhibitory
+
+Shared-cell comparison (shared rows x shared columns): 638,514 cells total, 0 identical (0.00%)
+Not all shared cells are identical -- scatter plot written to reference_building/benchmark/reference_data/ma/data/reformatted/compare_inf_aver/strategy2_mac_mps__strategy3_mac_mps.compare_two_inf_aver_scatter.png (PCC = 0.9447)
