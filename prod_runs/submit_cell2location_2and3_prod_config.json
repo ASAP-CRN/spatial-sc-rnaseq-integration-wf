@@ -8,7 +8,7 @@
   "cohort_raw_data_bucket_spatial_sc_rnaseq": "gs://asap-raw-team-scherzer-pmdbs-spatial-visium-mtg",
   "container_registry": "us-central1-docker.pkg.dev/dnastack-asap-parkinsons/workflow-images",
   "workflow_id": "865c2967-9af8-499d-9b70-aa10db6c49da",
-  "workflow_version_name": "v1.0.3",
+  "workflow_version_name": "v1.0.4",
   "preemptible": 0,
   "batch_key": "batch_id",
   "cell_type_key": "harmonized_cell_type_siletti_allen",
