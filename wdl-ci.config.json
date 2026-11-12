@@ -19,7 +19,7 @@
       "tasks": {
         "cell2location_build_reference": {
           "key": "cell2location_build_reference",
-          "digest": "v6qc46gx2n6zjuyxhqwsssonwfpb4enb",
+          "digest": "",
           "tests": [
             {
               "inputs": {
@@ -32,6 +32,7 @@
                 "workflow_info": "${workflow_info}",
                 "billing_project": "${billing_project}",
                 "container_registry": "${container_registry}",
+                "cell2location_version": "1.0.0",
                 "zones": "${zones}"
               },
               "output_tests": {
@@ -66,6 +67,7 @@
                 "workflow_info": "${workflow_info}",
                 "billing_project": "${billing_project}",
                 "container_registry": "${container_registry}",
+                "cell2location_version": "1.0.0",
                 "zones": "${zones}"
               },
               "output_tests": {
@@ -106,6 +108,7 @@
                 "workflow_info": "${workflow_info}",
                 "billing_project": "${billing_project}",
                 "container_registry": "${container_registry}",
+                "cell2location_version": "1.0.0",
                 "zones": "${zones}"
               },
               "output_tests": {
