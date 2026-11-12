@@ -1,10 +1,13 @@
 #!/usr/bin/env python3
-"""Build a multi-source deconvolution reference H5AD from an integrated (HVG-only) H5AD plus
-each source's all-gene preQC H5AD, intersecting genes (Ensembl IDs) and cells across sources.
-The resulting 'reference' will have all cells in the reference H5AD and all-genes intersecting across sources."""
+"""Build a multi-source deconvolution reference H5AD from an integrated (HVG-only) obs table
+(H5AD or tabular) plus each source's all-gene preQC H5AD, intersecting genes (Ensembl IDs) and
+cells across sources. The resulting 'reference' will have all cells in the integrated obs table
+and all-genes intersecting across sources."""
 
 import argparse
+import json
 import os
+import re
 import sys
 import numpy as np
 import anndata as ad
@@ -18,15 +21,65 @@ sys.path.insert(0, str(repo_root))
 
 from utils.h5ad_utils import extract_raw_counts, resolve_marker_ensembl_ids
 from utils.logging_extra import log_run_command
-from utils.genomics_constants import KAMATH_DA_MARKER_SYMBOLS
+from utils.genomics_constants import KAMATH_DA_MARKER_SYMBOLS, KAMATH_DA_SUBTYPE_LABELS
 
-
-# obs columns to rename in the output reference H5AD (old → new)
-_RENAME_OBS_COLS = {
-    "batch": "batch_id",
-}
 
 _BATCH_COL = "batch_id"  # obs column used for per-batch cell-count filtering
+
+_ENSEMBL_ID_PATTERN = re.compile(r"^ENSG[0-9]+(\.[0-9]+)?$")
+
+# sc-rnaseq-wf's spike-in convention: source is only set for spike-in cells
+# (e.g. "kamath", "siletti"); native ASAP cohort cells are left NaN. Treated
+# as this literal source name throughout.
+_NAN_SOURCE_LABEL = "asap_cohort"
+
+# cell_type_key values that --force-all-da always includes in full.
+_DOPAMINERGIC_LABEL = "Dopaminergic"
+_FORCE_ALL_DA_LABELS = frozenset({_DOPAMINERGIC_LABEL}) | KAMATH_DA_SUBTYPE_LABELS
+
+
+def _resolve_repo_path(path: str) -> str:
+    """
+    Resolve `path` against the repo root if relative, else return it unchanged.
+
+    Lets JSON configs use repo-relative paths (portable across machines/clones)
+    while still accepting absolute paths for anything outside the repo.
+
+    Parameters
+    ----------
+    path : str
+        Path from a JSON config; relative (to the repo root) or absolute.
+
+    Returns
+    -------
+    str
+        Absolute path.
+    """
+    p = Path(path)
+    return str(p if p.is_absolute() else (repo_root / p).resolve())
+
+
+def _stringify_mixed_type_cols(obs: pd.DataFrame, cols: list) -> None:
+    """
+    Coerce mixed-type object columns in `cols` to strings dtypes.
+    NaN values are left untouched (not coerced to "nan").
+
+    Parameters
+    ----------
+    obs : pandas.DataFrame
+        Obs table, modified in place.
+    cols : list
+        Column names to check/fix (duplicates ignored).
+    """
+    for col in dict.fromkeys(cols):
+        if obs[col].dtype != object:
+            continue
+        types = obs[col].map(lambda v: type(v).__name__ if not pd.isna(v) else None).dropna()
+        distinct = sorted(types.unique())
+        if len(distinct) > 1:
+            print(f"[INFO] obs['{col}'] has mixed types ({distinct}); "
+                  "coercing non-null values to str.")
+            obs[col] = obs[col].map(lambda v: v if pd.isna(v) else str(v))
 
 
 def _obs_index_key(h5ad_path: str) -> str:
@@ -51,29 +104,96 @@ def _read_var_names(h5ad_path: str) -> list:
     return [v.decode() if isinstance(v, bytes) else v for v in raw]
 
 
+def _detect_file_type(path: str) -> dict:
+    """
+    Infer file kind, delimiter, and compression from `path`'s filename.
+
+    Parameters
+    ----------
+    path : str
+        Path ending in .h5ad, .csv[.gz|.bz2], or .tsv[.gz|.bz2].
+
+    Returns
+    -------
+    dict
+        kind : str
+            "h5ad" or "tabular".
+        sep : str or None
+            "," for .csv, "\\t" for .tsv; None when kind is "h5ad".
+        compression : str or None
+            "gzip", "bz2", or None; always None when kind is "h5ad".
+    """
+    suffixes = [s.lower() for s in Path(path).suffixes]
+
+    compression = None
+    if suffixes and suffixes[-1] in (".gz", ".bz2"):
+        compression = {".gz": "gzip", ".bz2": "bz2"}[suffixes[-1]]
+        suffixes = suffixes[:-1]
+
+    ext = suffixes[-1] if suffixes else ""
+    if ext == ".h5ad":
+        if compression is not None:
+            raise ValueError(f"Unexpected compression suffix on an .h5ad file: {path}")
+        return {"kind": "h5ad", "sep": None, "compression": None}
+    if ext == ".csv":
+        return {"kind": "tabular", "sep": ",", "compression": compression}
+    if ext == ".tsv":
+        return {"kind": "tabular", "sep": "\t", "compression": compression}
+
+    raise ValueError(
+        f"Unsupported file extension for --integrated-file: {path}. "
+        "Expected .h5ad, .csv[.gz|.bz2], or .tsv[.gz|.bz2]."
+    )
+
+
+def _load_integrated_obs(path: str) -> pd.DataFrame:
+    """
+    Load the obs/metadata table from `path`, auto-detecting H5AD vs tabular input.
+
+    For an H5AD, only .obs is read (backed, raw counts are never loaded).
+    For a tabular file, the first column is used as the barcode index.
+
+    Parameters
+    ----------
+    path : str
+        Path to a .h5ad, .csv[.gz|.bz2], or .tsv[.gz|.bz2] file.
+
+    Returns
+    -------
+    pandas.DataFrame
+        Obs table indexed by barcode.
+    """
+    file_type = _detect_file_type(path)
+    if file_type["kind"] == "h5ad":
+        return ad.read_h5ad(path, backed="r").obs
+    return pd.read_csv(path, sep=file_type["sep"], compression=file_type["compression"], index_col=0)
+
+
 def _sample_per_source(
-    integrated: ad.AnnData,
+    integrated_obs: pd.DataFrame,
     source_col: str,
     subset_sources: list,
-    n_cells: int,
+    n_cells_map: dict,
     seed: int,
 ) -> dict:
     """
-    Sample `n_cells` barcodes per source from the integrated obs table.
+    Sample barcodes per source from the integrated obs table, using a
+    per-source target cell count.
 
     Uses contiguous-block sampling within each source group to minimise
     random HDF5 seeks when the caller later reads preQC rows.
 
     Parameters
     ----------
-    integrated : ad.AnnData
-        Backed integrated H5AD; only .obs is accessed.
+    integrated_obs : pandas.DataFrame
+        Obs table (barcode-indexed) loaded via `_load_integrated_obs`.
     source_col : str
-        Column in .obs that identifies the source dataset.
+        Column identifying the source dataset.
     subset_sources : list
         Sources to include (must be values in obs[source_col]).
-    n_cells : int
-        Target cells per source.
+    n_cells_map : dict
+        source → target cell count. A source absent from this dict, or
+        mapped to None, takes all of that source's cells.
     seed : int
         Random seed for block-start selection.
 
@@ -84,7 +204,7 @@ def _sample_per_source(
     """
     rng = np.random.default_rng(seed)
     result = {}
-    obs = integrated.obs
+    obs = integrated_obs
 
     missing = [s for s in subset_sources if s not in obs[source_col].values]
     if missing:
@@ -97,6 +217,7 @@ def _sample_per_source(
         mask = obs[source_col] == src
         barcodes = obs.index[mask].tolist()
         n = len(barcodes)
+        n_cells = n_cells_map.get(src)
         if n_cells is None or n_cells >= n:
             print(f"  [{src}] {n:,} cells — taking all")
             result[src] = barcodes
@@ -106,6 +227,170 @@ def _sample_per_source(
             print(f"  [{src}] {n:,} total → sampled {n_cells:,} (block offset {start:,})")
 
     return result
+
+
+def _top_up_rare_cell_types(
+    integrated_obs: pd.DataFrame,
+    source_barcodes: dict,
+    source_col: str,
+    subset_sources: list,
+    cell_type_key: str,
+    min_cells_per_type: int,
+    seed: int,
+) -> dict:
+    """
+    Top up cell types under-represented in `source_barcodes`, drawing
+    extra cells from integrated_obs to top up min_cells_per_type.
+
+    Parameters
+    ----------
+    integrated_obs : pandas.DataFrame
+        Full obs table (barcode-indexed).
+    source_barcodes : dict
+        source → list of already-selected barcodes (not mutated).
+    source_col : str
+        Column identifying the source dataset.
+    subset_sources : list
+        Sources eligible as top-up candidates (must have a preQC H5AD).
+    cell_type_key : str
+        obs column with cell-type labels to balance.
+    min_cells_per_type : int
+        Minimum cells desired per distinct cell_type_key value.
+    seed : int
+        Random seed for selecting which extra cells to add.
+
+    Returns
+    -------
+    dict
+        source → list of barcodes, with any needed top-ups merged in.
+    """
+    rng = np.random.default_rng(seed)
+    result = {src: list(bcs) for src, bcs in source_barcodes.items()}
+    selected = set(bc for bcs in result.values() for bc in bcs)
+
+    eligible = integrated_obs[integrated_obs[source_col].isin(subset_sources)]
+    current_counts = eligible.loc[eligible.index.isin(selected), cell_type_key].value_counts()
+
+    for ct, group in eligible.groupby(cell_type_key, observed=True):
+        have = current_counts.get(ct, 0)
+        if have >= min_cells_per_type:
+            continue
+        candidates = group.index[~group.index.isin(selected)]
+        n_take = min(min_cells_per_type - have, len(candidates))
+        if n_take <= 0:
+            continue
+        chosen = rng.choice(candidates.to_numpy(), size=n_take, replace=False)
+        for bc in chosen:
+            result.setdefault(eligible.at[bc, source_col], []).append(bc)
+        selected.update(chosen)
+        reached = have + n_take
+        status = "reached" if reached >= min_cells_per_type else f"capped, only {have + len(candidates)} available"
+        print(f"[INFO] Topped up '{ct}' from {have:,} to {reached:,} cells ({status})")
+
+    return result
+
+
+def _force_include_all_da_cells(
+    integrated_obs: pd.DataFrame,
+    source_barcodes: dict,
+    source_col: str,
+    subset_sources: list,
+    cell_type_key: str,
+) -> dict:
+    """
+    Force-include every cell labelled "Dopaminergic" or a Kamath et al. (2022)
+    DA subtypes, regardless of n_cells sampling.
+
+    Parameters
+    ----------
+    integrated_obs : pandas.DataFrame
+        Full obs table (barcode-indexed).
+    source_barcodes : dict
+        source → list of already-selected barcodes (not mutated).
+    source_col : str
+        Column identifying the source dataset.
+    subset_sources : list
+        Sources eligible (must have a preQC H5AD).
+    cell_type_key : str
+        obs column checked against `_FORCE_ALL_DA_LABELS`.
+
+    Returns
+    -------
+    dict
+        source → list of barcodes, with every DA-related cell merged in.
+    """
+    result = {src: list(bcs) for src, bcs in source_barcodes.items()}
+    selected = set(bc for bcs in result.values() for bc in bcs)
+    n_before = len(selected)
+
+    eligible = integrated_obs[integrated_obs[source_col].isin(subset_sources)]
+    da_cells = eligible[eligible[cell_type_key].isin(_FORCE_ALL_DA_LABELS)]
+
+    for bc, src in zip(da_cells.index, da_cells[source_col]):
+        if bc not in selected:
+            result.setdefault(src, []).append(bc)
+            selected.add(bc)
+
+    print(f"[INFO] --force-all-da: {len(da_cells):,} DA-related cells found "
+          f"({sorted(da_cells[cell_type_key].unique())}); "
+          f"added {len(selected) - n_before:,} not already selected.")
+
+    return result
+
+
+def _ensembl_match_rate(values: list) -> float:
+    """
+    Fraction of `values` that look like a bare (optionally versioned) Ensembl gene ID.
+
+    Parameters
+    ----------
+    values : list
+        Candidate gene identifiers to check.
+
+    Returns
+    -------
+    float
+        Match rate in [0, 1]; 0.0 for an empty list.
+    """
+    if not values:
+        return 0.0
+    n_match = sum(1 for v in values if isinstance(v, str) and _ENSEMBL_ID_PATTERN.match(v))
+    return n_match / len(values)
+
+
+def _resolve_ensembl_gene_ids(subset: ad.AnnData, source_name: str) -> list:
+    """
+    Pick whichever var field looks like Ensembl gene IDs.
+
+    Parameters
+    ----------
+    subset : anndata.AnnData
+        Source AnnData subset to inspect.
+    source_name : str
+        Display label for messages.
+
+    Returns
+    -------
+    list
+        Values from whichever field has the highest Ensembl ID match rate.
+    """
+    candidates = {"var_names": list(subset.var_names)}
+    for col in subset.var.columns:
+        candidates[col] = list(subset.var[col].astype(str))
+
+    best_field, best_values, best_rate = None, None, -1.0
+    for field, values in candidates.items():
+        rate = _ensembl_match_rate(values)
+        if rate > best_rate:
+            best_field, best_values, best_rate = field, values, rate
+
+    print(f"  [{source_name}] gene ID field: '{best_field}' "
+          f"({best_rate:.1%} of {len(best_values):,} values match Ensembl ID format)")
+    if best_rate < 0.9:
+        print(f"  [WARNING] [{source_name}] no var field looks consistently like Ensembl IDs "
+              f"(best: '{best_field}' at {best_rate:.1%}); gene intersection may be unreliable.")
+
+    return best_values
 
 
 def _load_source_counts(
@@ -128,9 +413,9 @@ def _load_source_counts(
     Returns
     -------
     tuple
-        (csr_matrix int32, list of var_names, list of matched barcodes,
+        (csr_matrix int32, list of Ensembl gene IDs, list of matched barcodes,
         var['feature_name'] pandas.Series or None if not present)
-        The matrix rows match `matched_barcodes` in the same order.
+        Gene IDs are resolved via `_resolve_ensembl_gene_ids`.
     """
     all_barcodes = _read_barcodes(preqc_h5ad)
     bc_to_idx = {bc: i for i, bc in enumerate(all_barcodes)}
@@ -141,7 +426,7 @@ def _load_source_counts(
         examples = sorted(missing)[:5]
         raise ValueError(
             f"[{source_name}] {len(missing):,} barcode(s) from integrated not found "
-            f"in preQC obs (e.g. {examples}). Check --integrated-h5ad and "
+            f"in preQC obs (e.g. {examples}). Check --integrated-file and "
             "--source-preqc-h5ads point to the same cohort."
         )
 
@@ -151,7 +436,7 @@ def _load_source_counts(
     print(f"  [{source_name}] loading {len(sorted_idx):,} cells from {preqc_h5ad}")
     preqc = ad.read_h5ad(preqc_h5ad, backed="r")
     subset = preqc[sorted_idx].to_memory()
-    var_names = list(subset.var_names)
+    var_names = _resolve_ensembl_gene_ids(subset, source_name)
     feature_name = subset.var["feature_name"] if "feature_name" in subset.var.columns else None
     counts = extract_raw_counts(subset, source_name=source_name)
 
@@ -196,16 +481,40 @@ def _resolve_da_marker_ensembl_ids(
     )
 
 
+def _collapse_kamath_da_subtypes(labels: pd.Series) -> pd.Series:
+    """
+    Collapse Kamath et al. (2022) DA subtype labels (e.g. SOX6_AGTR1, CALB1_GEM)
+    back into a single "Dopaminergic" category. All other values are unchanged.
+
+    Parameters
+    ----------
+    labels : pandas.Series
+        Cell-type labels (e.g. obs[cell_type_key]).
+
+    Returns
+    -------
+    pandas.Series
+        Copy of `labels`, object dtype, with Kamath DA subtype values replaced
+        by "Dopaminergic".
+    """
+    labels = labels.astype(object)
+    is_da_subtype = labels.isin(KAMATH_DA_SUBTYPE_LABELS)
+    return labels.where(~is_da_subtype, "Dopaminergic")
+
+
 def prepare_reference(
-    integrated_h5ad: str,
+    integrated_file: str,
     preqc_map: dict,
     subset_sources: list,
-    n_cells: int,
+    n_cells_map: dict,
     source_col: str,
     obs_cols: list,
     rename_obs_cols: dict,
     min_cells_per_batch: int,
+    min_cells_per_type: int,
+    force_all_da: bool,
     cell_type_key: str,
+    collapse_kamath_da_subtypes: bool,
     output_h5ad: str,
     seed: int,
     promote: bool,
@@ -216,14 +525,16 @@ def prepare_reference(
 
     Parameters
     ----------
-    integrated_h5ad : str
-        scVI/scANVI integrated H5AD (backed; only obs accessed).
+    integrated_file : str
+        scVI/scANVI integrated obs table: .h5ad (backed; only obs accessed),
+        or tabular (.csv/.tsv, optionally .gz/.bz2) with barcodes in the first column.
     preqc_map : dict
         source_name → path to preQC H5AD with all-gene raw counts.
     subset_sources : list
         Source names to include (must be keys in `preqc_map` and values in obs[source_col]).
-    n_cells : int
-        Target cells per source.
+    n_cells_map : dict
+        source → target cell count. A source absent from this dict, or mapped to
+        None, takes all of that source's cells.
     source_col : str
         obs column in the integrated H5AD that holds source identifiers.
     obs_cols : list
@@ -232,8 +543,18 @@ def prepare_reference(
         old_name → new_name renames applied to obs before writing.
     min_cells_per_batch : int
         Drop cells whose `_BATCH_COL` group has fewer than this many cells. 0 disables filtering.
+    min_cells_per_type : int
+        Top up any cell_type_key value under this many cells, drawing extras from
+        integrated_obs not already selected (capped at however many actually exist).
+        0 disables this.
+    force_all_da : bool
+        If True, force-include every "Dopaminergic" or Kamath DA subtype cells, regardless of n_cells sampling.
     cell_type_key : str
         obs column with cell-type labels (must be in obs_cols).
+    collapse_kamath_da_subtypes : bool
+        If True, obs[<cell_type_key>_final] collapses Kamath DA subtype labels
+        in `cell_type_key` (e.g. SOX6_AGTR1, CALB1_GEM) into "Dopaminergic".
+        If False, obs[<cell_type_key>_final] is a verbatim copy of `cell_type_key`.
     output_h5ad : str
         Destination path.
     seed : int
@@ -248,24 +569,45 @@ def prepare_reference(
     -------
     None
     """
-    print(f"[INFO] Loading integrated obs from: {integrated_h5ad}")
-    integrated = ad.read_h5ad(integrated_h5ad, backed="r")
-    print(f"  {integrated.n_obs:,} cells total, sources: {sorted(integrated.obs[source_col].unique())}")
+    print(f"[INFO] Loading integrated obs from: {integrated_file}")
+    integrated_obs = _load_integrated_obs(integrated_file)
+    n_nan_source = integrated_obs[source_col].isna().sum()
+    if n_nan_source:
+        integrated_obs[source_col] = integrated_obs[source_col].fillna(_NAN_SOURCE_LABEL)
+        print(f"[INFO] Filled {n_nan_source:,} NaN '{source_col}' value(s) as '{_NAN_SOURCE_LABEL}' "
+              "(native cohort cells are unlabelled; only spike-ins carry a source).")
+    print(f"  {len(integrated_obs):,} cells total, sources: {sorted(integrated_obs[source_col].unique())}")
 
-    missing_cols = [c for c in obs_cols if c not in integrated.obs.columns]
+    missing_cols = [c for c in obs_cols if c not in integrated_obs.columns]
     if missing_cols:
         raise ValueError(
-            f"obs columns not found in integrated H5AD: {missing_cols}. "
-            f"Available: {list(integrated.obs.columns)}"
+            f"obs columns not found in integrated file: {missing_cols}. "
+            f"Available: {list(integrated_obs.columns)}"
         )
 
-    n_cells_label = "all" if n_cells is None else f"{n_cells:,}"
-    print(f"[INFO] Sampling {n_cells_label} cells per source from: {subset_sources}")
-    source_barcodes = _sample_per_source(integrated, source_col, subset_sources, n_cells, seed)
+    _stringify_mixed_type_cols(integrated_obs, obs_cols + [source_col])
+
+    n_cells_label = ", ".join(
+        f"{src}={n_cells_map[src]:,}" if n_cells_map.get(src) is not None else f"{src}=all"
+        for src in subset_sources
+    )
+    print(f"[INFO] Sampling cells per source: {n_cells_label}")
+    source_barcodes = _sample_per_source(integrated_obs, source_col, subset_sources, n_cells_map, seed)
+
+    if min_cells_per_type > 0:
+        source_barcodes = _top_up_rare_cell_types(
+            integrated_obs, source_barcodes, source_col, subset_sources,
+            cell_type_key, min_cells_per_type, seed,
+        )
+
+    if force_all_da:
+        source_barcodes = _force_include_all_da_cells(
+            integrated_obs, source_barcodes, source_col, subset_sources, cell_type_key,
+        )
 
     source_obs = {}
     for src, barcodes in source_barcodes.items():
-        source_obs[src] = integrated.obs.loc[barcodes, obs_cols].copy()
+        source_obs[src] = integrated_obs.loc[barcodes, obs_cols].copy()
 
     print("[INFO] Loading preQC counts per source ...")
     source_counts = {}
@@ -343,6 +685,14 @@ def prepare_reference(
     for col in obs_combined.select_dtypes("category").columns:
         obs_combined[col] = obs_combined[col].cat.remove_unused_categories()
 
+    final_col = f"{cell_type_key}_final"
+    if collapse_kamath_da_subtypes:
+        obs_combined[final_col] = _collapse_kamath_da_subtypes(obs_combined[cell_type_key])
+        print(f"[INFO] Collapsed Kamath DA subtype labels in '{cell_type_key}' into "
+              f"'Dopaminergic' for obs['{final_col}']")
+    else:
+        obs_combined[final_col] = obs_combined[cell_type_key]
+
     var_df = pd.DataFrame(index=shared_genes)
     var_df.index.name = "gene_id"
 
@@ -390,8 +740,16 @@ def prepare_reference(
     for ct, n in label_counts.items():
         print(f"  {ct}: {n:,}")
 
+    final_label_counts = obs_combined[final_col].value_counts()
+    print(f"[INFO] Cell type distribution ({final_col}):")
+    for ct, n in final_label_counts.items():
+        print(f"  {ct}: {n:,}")
+
     print(f"[DONE] {output_h5ad}")
 
+# _DEFAULT_OBS_COLS = ["source", "batch", "cell_type_pred", "pmdbs_sc_rnaseq.C_scANVI"] # used in releases < v5.0.0
+_DEFAULT_OBS_COLS = ["source", "batch_id", "ground_truth_cell_type", "cell_type", "C_scANVI"]
+_FILTER_GENES_CHOICES = ("intersection", "cell2location_default", "cell2location_u_da")
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(
@@ -399,85 +757,93 @@ if __name__ == "__main__":
         formatter_class=argparse.RawTextHelpFormatter,
     )
     parser.add_argument(
-        "--integrated-h5ad",
+        "-i", "--input-json",
         required=True,
         help=(
-            "scVI/scANVI integrated H5AD. Used only for obs\n"
-            "(cell labels, source column); raw counts come from --source-preqc-h5ads.\n"
+            "Path to a JSON config file, e.g.:\n"
+            "\n"
+            "{\n"
+            '  "integrated_file": "/path/to/asap-cohort.final_metadata.csv.gz",\n'
+            '  "source_preqc_h5ads": {\n'
+            '    "asap_cohort": "/path/to/asap-cohort.merged_cleaned_unfiltered_preQC.h5ad",\n'
+            '    "kamath": "/path/to/kamath_preQC.h5ad",\n'
+            '    "siletti": "/path/to/siletti_preQC.h5ad"\n'
+            "  },\n"
+            '  "n_cells": {"kamath": 20000, "siletti": 50000, "asap_cohort": 100000},\n'
+            '  "output_h5ad": "/path/to/deconvolution_reference.h5ad"\n'
+            "}\n"
+            "\n"
+            "All paths may be relative to the repo root or absolute.\n"
+            "\n"
+            "Fields:\n"
+            "  integrated_file (required)\n"
+            "      scVI/scANVI integrated obs table: .h5ad (obs only; raw counts come\n"
+            "      from source_preqc_h5ads), or tabular (.csv/.tsv, optionally .gz/.bz2)\n"
+            "      with barcodes in the first column. Repo-relative or absolute path.\n"
+            "\n"
+            "  source_preqc_h5ads (required)\n"
+            "      source -> preQC H5AD path (repo-relative or absolute) with all-gene\n"
+            "      raw counts. Defines which sources are included; every other\n"
+            "      source-keyed field (e.g. n_cells) must use these same source names.\n"
+            "\n"
+            "  n_cells (optional)\n"
+            "      source -> target cell count: either i) an integer to downsample that many\n"
+            "      cells from the integrated_file, or ii) \"all_integrated\" to take every\n"
+            "      cell present for that source in integrated_file. Cells must also exist\n"
+            "      in the source's preQC H5AD. A source omitted here, also takes all cells\n"
+            "      for that source.\n"
+            "  source_col (optional)\n"
+            "      obs column in integrated_file identifying the source dataset.\n"
+            "      NaN values are treated as \"asap_cohort\" because sc-rnaseq-wf\n"
+            "      only indicates the source for spike-in cells.\n"
+            "      Default: \"source\"\n"
+            "\n"
+            "  cell_type_key (optional)\n"
+            "      obs column with scVI/scANVI cell-type labels. Must be present in\n"
+            "      obs_cols. Default: \"C_scANVI\"\n"
+            "\n"
+            "  collapse_kamath_da_subtypes (optional)\n"
+            "      Collapse Kamath et al. (2022) DA subtype labels (e.g. SOX6_AGTR1,\n"
+            "      CALB1_GEM) in cell_type_key back into \"Dopaminergic\" when writing\n"
+            "      obs[<cell_type_key>_final]. False writes obs[<cell_type_key>_final]\n"
+            "      as a verbatim copy of cell_type_key instead. Default: true\n"
+            "\n"
+            "  obs_cols (optional)\n"
+            "      obs columns to carry into the output H5AD.\n"
+            f"      Default: {_DEFAULT_OBS_COLS}\n"
+            "\n"
+            "  rename_obs_cols (optional)\n"
+            "      old_name -> new_name renames applied to obs_cols in the output H5AD.\n"
+            "      Example: {\"cell_type\": \"cell_type_MMC\"}\n"
+            "\n"
+            "  minimum_cells_per_batch (optional)\n"
+            "      Drop cells whose batch group has fewer than N cells. Applied to\n"
+            "      batch_col after renaming. Default: 0 (disabled)\n"
+            "\n"
+            "  minimum_cells_per_type (optional)\n"
+            "      Opposite of minimum_cells_per_batch: tops up (not drops) any\n"
+            "      cell_type_key value sampled below N cells, drawing extras from\n"
+            "      integrated_file not already selected. A type with fewer than N\n"
+            "      cells available in total is capped at however many actually exist\n"
+            "      (no error). Default: 0 (disabled)\n"
+            "\n"
+            "  force_all_da (optional)\n"
+            "      If true, force-include every \"Dopaminergic\" or Kamath et al. (2022)\n"
+            "      DA subtype cells in cell_type_key, regardless of n_cells sampling. Default: false\n"
+            "\n"
+            "  filter_genes (optional)\n"
+            "      Gene set to write, beyond the raw cross-source intersection:\n"
+            "        intersection          : no further filtering (default).\n"
+            "        cell2location_default : cell2location.utils.filtering.filter_genes\n"
+            "                                with the tutorial's defaults (cell_count_cutoff=5,\n"
+            "                                cell_percentage_cutoff2=0.03, nonz_mean_cutoff=1.12).\n"
+            "        cell2location_u_da    : cell2location_default, unioned with Kamath's\n"
+            "                                17 DA marker genes.\n"
+            "\n"
+            "  output_h5ad (required)\n"
+            "      Destination path (repo-relative or absolute) for the deconvolution\n"
+            "      reference H5AD.\n"
         ),
-    )
-    parser.add_argument(
-        "--source-preqc-h5ads",
-        nargs="+",
-        required=True,
-        metavar="SOURCE=PATH",
-        help=(
-            "Per-source preQC H5AD paths with all-gene raw counts.\n"
-            "Format: SOURCE_NAME=/path/to/preQC.h5ad\n"
-            "Example:\n"
-            "  asap_cohort=/path/asap-cohort.merged_cleaned_unfiltered_preQC.h5ad\n"
-            "  kamath=/path/kamath_preQC.h5ad\n"
-            "  siletti=/path/siletti_preQC.h5ad"
-        ),
-    )
-    parser.add_argument(
-        "--n-cells",
-        type=int,
-        default=None,
-        help="Target cells per source. Default: all cells for each source.",
-    )
-    parser.add_argument(
-        "--source-col",
-        default="source",
-        help=(
-            "obs column in --integrated-h5ad identifying the source dataset.\n"
-            "Default: source"
-        ),
-    )
-    parser.add_argument(
-        "--cell-type-key",
-        default="cell_type_pred",
-        help=(
-            "obs column with scVI/scANVI cell-type labels.\n"
-            "Must be present in --obs-cols. Default: cell_type_pred"
-        ),
-    )
-    parser.add_argument(
-        "--obs-cols",
-        default="source,batch,cell_type_pred,pmdbs_sc_rnaseq.C_scANVI",
-        help=(
-            "Comma-separated obs columns to carry into the output H5AD.\n"
-            "Default: source,batch,cell_type_pred,pmdbs_sc_rnaseq.C_scANVI"
-        ),
-    )
-    parser.add_argument(
-        "--minimum-cells-per-batch",
-        type=int,
-        default=0,
-        metavar="N",
-        help=(
-            "Drop cells whose batch group has fewer than N cells.\n"
-            "Applied to --batch-col after renaming. Default: 0 (disabled)."
-        ),
-    )
-    parser.add_argument(
-        "--filter-genes",
-        choices=["intersection", "cell2location_default", "cell2location_u_da"],
-        default="intersection",
-        help=(
-            "Gene set to write, beyond the raw cross-source intersection:\n"
-            "  intersection           : no further filtering (default; current behaviour).\n"
-            "  cell2location_default : apply cell2location.utils.filtering.filter_genes\n"
-            "                           with the tutorial's defaults (cell_count_cutoff=5,\n"
-            "                           cell_percentage_cutoff2=0.03, nonz_mean_cutoff=1.12).\n"
-            "  cell2location_u_da    : cell2location_default, unioned with Kamath's 17 DA\n"
-            "                           marker genes."
-        ),
-    )
-    parser.add_argument(
-        "--output-h5ad",
-        required=True,
-        help="Destination path for the deconvolution reference H5AD.",
     )
     parser.add_argument(
         "--promote",
@@ -488,35 +854,61 @@ if __name__ == "__main__":
 
     args = parser.parse_args()
 
-    preqc_map = {}
-    for kv in args.source_preqc_h5ads:
-        if "=" not in kv:
-            parser.error(
-                f"--source-preqc-h5ads entries must be SOURCE=PATH, got: {kv!r}"
-            )
-        src, path = kv.split("=", 1)
-        preqc_map[src.strip()] = os.path.abspath(path.strip())
+    try:
+        with open(args.input_json, "r") as f:
+            config = json.load(f)
+    except FileNotFoundError:
+        parser.error(f"{args.input_json} JSON file does not exist.")
 
+    try:
+        integrated_file = config["integrated_file"]
+        preqc_map_raw = config["source_preqc_h5ads"]
+        output_h5ad = config["output_h5ad"]
+    except KeyError as e:
+        parser.error(f"Missing required field {e} in {args.input_json}.")
+
+    preqc_map = {src: _resolve_repo_path(path) for src, path in preqc_map_raw.items()}
     subset_sources = list(preqc_map.keys())
-    obs_cols = [c.strip() for c in args.obs_cols.split(",") if c.strip()]
 
-    args.integrated_h5ad = os.path.abspath(args.integrated_h5ad)
-    args.output_h5ad     = os.path.abspath(args.output_h5ad)
-    args.output_dir      = os.path.dirname(args.output_h5ad)
-    log_run_command(Path(args.output_dir) / f"{Path(args.output_h5ad).stem}.log")
+    n_cells_map = {}
+    for src, n in config.get("n_cells", {}).items():
+        if src not in preqc_map:
+            parser.error(
+                f"n_cells source {src!r} not found in source_preqc_h5ads: {sorted(preqc_map)}"
+            )
+        if n == "all_integrated":
+            n_cells_map[src] = None
+        elif isinstance(n, int) and not isinstance(n, bool):
+            n_cells_map[src] = n
+        else:
+            parser.error(
+                f'n_cells value for {src!r} must be an integer or "all_integrated", got: {n!r}'
+            )
+
+    filter_genes_mode = config.get("filter_genes", "intersection")
+    if filter_genes_mode not in _FILTER_GENES_CHOICES:
+        parser.error(f"filter_genes must be one of {_FILTER_GENES_CHOICES}, got: {filter_genes_mode!r}")
+
+    integrated_file = _resolve_repo_path(integrated_file)
+    output_h5ad     = _resolve_repo_path(output_h5ad)
+    output_dir      = os.path.dirname(output_h5ad)
+    log_run_command(Path(output_dir) / f"{Path(output_h5ad).stem}.log")
 
     prepare_reference(
-        integrated_h5ad=args.integrated_h5ad,
+        integrated_file=integrated_file,
         preqc_map=preqc_map,
         subset_sources=subset_sources,
-        n_cells=args.n_cells,
-        source_col=args.source_col,
-        obs_cols=obs_cols,
-        rename_obs_cols=_RENAME_OBS_COLS,
-        min_cells_per_batch=args.minimum_cells_per_batch,
-        cell_type_key=args.cell_type_key,
-        output_h5ad=args.output_h5ad,
+        n_cells_map=n_cells_map,
+        source_col=config.get("source_col", "source"),
+        obs_cols=config.get("obs_cols", _DEFAULT_OBS_COLS),
+        rename_obs_cols=config.get("rename_obs_cols", {}),
+        min_cells_per_batch=config.get("minimum_cells_per_batch", 0),
+        min_cells_per_type=config.get("minimum_cells_per_type", 0),
+        force_all_da=config.get("force_all_da", False),
+        cell_type_key=config.get("cell_type_key", "C_scANVI"),
+        collapse_kamath_da_subtypes=config.get("collapse_kamath_da_subtypes", True),
+        output_h5ad=output_h5ad,
         seed=42,
         promote=args.promote,
-        filter_genes_mode=args.filter_genes,
+        filter_genes_mode=filter_genes_mode,
     )

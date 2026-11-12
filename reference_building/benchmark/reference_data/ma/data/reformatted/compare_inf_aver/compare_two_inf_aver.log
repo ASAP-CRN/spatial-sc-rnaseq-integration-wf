@@ -1,0 +1,12 @@
+[2026-11-11 11:48:13] reference_building/benchmark/reference_data/ma/scripts/compare_two_inf_aver.py --outdir reference_building/benchmark/reference_data/ma/data/reformatted/compare_inf_aver/ --infile-csv-1 reference_building/benchmark/reference_data/ma/data/reformatted/cell2location_Strategy3/deconvolution_reference_strategy3_inf_aver_LinuxCuda.csv.gz --infile-csv-2 reference_building/benchmark/reference_data/ma/data/reformatted/cell2location_Strategy3/deconvolution_reference_strategy3_inf_aver.csv.gz --label-1 strategy3_linux_cuda --label-2 strategy3_mac_mps
+File 1 (strategy3_linux_cuda): reference_building/benchmark/reference_data/ma/data/reformatted/cell2location_Strategy3/deconvolution_reference_strategy3_inf_aver_LinuxCuda.csv.gz
+File 2 (strategy3_mac_mps): reference_building/benchmark/reference_data/ma/data/reformatted/cell2location_Strategy3/deconvolution_reference_strategy3_inf_aver.csv.gz
+
+Rows    -- file 1: 17,398  file 2: 17,398  shared: 17,398  only-in-1: 0  only-in-2: 0
+Columns -- file 1: 41  file 2: 40  shared: 40  only-in-1: 1  only-in-2: 0
+  Columns only in file 1: Mammillary body
+
+Shared-cell comparison (shared rows x shared columns): 695,920 cells total, 2 identical (0.00%)
+Not all shared cells are identical -- scatter plot written to reference_building/benchmark/reference_data/ma/data/reformatted/compare_inf_aver/strategy3_linux_cuda__strategy3_mac_mps.compare_two_inf_aver_scatter.png (PCC = 1.0000)
+
+Summary written to reference_building/benchmark/reference_data/ma/data/reformatted/compare_inf_aver/strategy3_linux_cuda__strategy3_mac_mps.compare_two_inf_aver_summary.txt

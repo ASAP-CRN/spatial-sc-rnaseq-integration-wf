@@ -1,0 +1,22 @@
+category,total,side
+Astrocyte,1507.51611328125,our
+DA neuron,1343.957275390625,our
+Endothelial,1823.4674072265625,our
+Ependyma,692.3502807617188,our
+Excitatory neuron,428.7841491699219,our
+Inhibitory neuron,278.60845947265625,our
+Microglia,861.7491455078125,our
+Oligod. Precursor,797.6396484375,our
+Oligodendrocyte,2312.543701171875,our
+Unmapped,1812.3837890625,our
+Astrocyte,3205.518173146645,ma
+BA macrophages,98.54072354762565,ma
+DA neuron,3206.511016464562,ma
+Endothelial,1535.3130015841416,ma
+Inhibitory neuron,134.31163764775383,ma
+Interneuron,207.00564798416488,ma
+Microglia,443.96405099975453,ma
+Oligod. Precursor,212.96932608892888,ma
+Oligodendrocyte,1877.3775073674394,ma
+Tcells,428.4417269052148,ma
+VascSmMs,509.0471882637681,ma

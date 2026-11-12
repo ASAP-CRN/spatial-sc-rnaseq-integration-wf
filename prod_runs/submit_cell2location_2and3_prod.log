@@ -1,0 +1,8 @@
+[2026-11-05 20:33:12] scripts/submit_cell2location_2and3_prod.py --infile-sample-ids-all prod_runs/list_of_spatial_samples_to_submit_all.txt --validate-bucket-meta-tsv --chunk-size 15 -i prod_runs/submit_cell2location_2and3_prod_config.json
+[INFO] Listing gs://asap-raw-team-scherzer-pmdbs-spatial-visium-mtg/workflow_execution/spatial_visium/deconvolution_analysis/cluster_visium/1.0.0 ...
+  570 object(s) found
+[INFO] Validating 285 .meta.tsv file(s) for 95 candidate(s) in one batch ...
+[INFO] 95 sample(s) confirmed done via bucket .meta.tsv validation
+[INFO] 95 total sample ID(s); 95 already done; 0 remaining
+[INFO] Split into 0 chunk(s) of up to 15 sample(s) each
+[DRY-RUN] Re-run with --promote to actually submit.

@@ -1,0 +1,7 @@
+[2026-10-16 14:44:28] Rscript reference_building/benchmark/reference_data/ma/scripts/02_export_spot_metadata.R
+
+Total spots: 11859 
+
+T0081 T2465 T2791 T3799 T3870 T4424 T4515 T4839 T5359 T5498 
+  562   958   866  1037  1000  1624  1870   799  1375  1768 
+Written reference_building/benchmark/reference_data/ma/data/reformatted/spot_metadata_all_samples.csv.gz 

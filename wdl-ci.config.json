@@ -12,14 +12,14 @@
       "description": "",
       "tasks": {}
     },
-    "workflows/integration/integration.wdl": {
-      "key": "workflows/integration/integration.wdl",
+    "workflows/deconvolution/deconvolution.wdl": {
+      "key": "workflows/deconvolution/deconvolution.wdl",
       "name": "",
       "description": "",
       "tasks": {
         "cell2location_build_reference": {
           "key": "cell2location_build_reference",
-          "digest": "upespvr2x5eywjypt6mkjbmjkxleusrz",
+          "digest": "mx7ebit47rlicivjga4l3omk4ske6sag",
           "tests": [
             {
               "inputs": {
@@ -29,8 +29,10 @@
                 "max_epochs_ref": "${max_epochs_ref}",
                 "preemptible": "${preemptible}",
                 "raw_data_path": "${cohort_raw_data_path}",
+                "workflow_info": "${workflow_info}",
                 "billing_project": "${billing_project}",
                 "container_registry": "${container_registry}",
+                "cell2location_version": "1.0.0",
                 "zones": "${zones}"
               },
               "output_tests": {
@@ -49,11 +51,12 @@
         },
         "cell2location_deconvolute_visium": {
           "key": "cell2location_deconvolute_visium",
-          "digest": "n64l36w3xszzjxrrkp35og3euk5d7vep",
+          "digest": "qyv4m4svs3jhrf2x6s3jyxnh72mceaiz",
           "tests": [
             {
               "inputs": {
                 "sample_id": "ASAP_PMBDS_000003_s007_Rep1",
+                "corrected_sample_id": "ASAP_PMDBS_000003_s007_Rep1",
                 "spatial_adata": "${spatial_visium_preprocess_path}/ASAP_PMBDS_000003_s007_Rep1.cleaned_unfiltered.h5ad",
                 "sc_rnaseq_reference_cell2location_model": "${input_resources_file_path}/${cohort_workflow_name}/deconvolution_reference_30k_inf_aver.csv.gz",
                 "n_cells_per_spot": "${n_cells_per_spot}",
@@ -61,8 +64,10 @@
                 "max_epochs_spatial": "${max_epochs_spatial}",
                 "preemptible": "${preemptible}",
                 "raw_data_path": "${cohort_raw_data_path}",
+                "workflow_info": "${workflow_info}",
                 "billing_project": "${billing_project}",
                 "container_registry": "${container_registry}",
+                "cell2location_version": "1.0.0",
                 "zones": "${zones}"
               },
               "output_tests": {
@@ -88,19 +93,22 @@
         },
         "cell2location_cluster_visium": {
           "key": "cell2location_cluster_visium",
-          "digest": "txdaibokda4tzhbd266y4bnzglvefsp6",
+          "digest": "yxp77owo744pi54ezya43bj3ljjpz3cl",
           "tests": [
             {
               "inputs": {
                 "sample_id": "ASAP_PMBDS_000003_s007_Rep1",
+                "corrected_sample_id": "ASAP_PMDBS_000003_s007_Rep1",
                 "spatial_deconvolution_adata": "${input_resources_file_path}/${cohort_workflow_name}/ASAP_PMDBS_000003_s007_Rep1.deconvoluted.h5ad",
                 "n_comps": "${n_comps}",
                 "n_neighbors": "${n_neighbors}",
                 "leiden_res": "${leiden_res}",
                 "preemptible": "${preemptible}",
                 "raw_data_path": "${cohort_raw_data_path}",
+                "workflow_info": "${workflow_info}",
                 "billing_project": "${billing_project}",
                 "container_registry": "${container_registry}",
+                "cell2location_version": "1.0.0",
                 "zones": "${zones}"
               },
               "output_tests": {
@@ -167,42 +175,6 @@
           "tests": []
         }
       }
-    },
-    "spatial-sc-rnaseq-integration-wdl-ci-custom-test-dir/image_validator.wdl": {
-      "key": "spatial-sc-rnaseq-integration-wdl-ci-custom-test-dir/image_validator.wdl",
-      "name": "",
-      "description": "",
-      "tasks": {
-        "image_validator": {
-          "key": "image_validator",
-          "digest": "",
-          "tests": []
-        }
-      }
-    },
-    "spatial-sc-rnaseq-integration-wdl-ci-custom-test-dir/check_parquet.wdl": {
-      "key": "spatial-sc-rnaseq-integration-wdl-ci-custom-test-dir/check_parquet.wdl",
-      "name": "",
-      "description": "",
-      "tasks": {
-        "check_parquet": {
-          "key": "check_parquet",
-          "digest": "",
-          "tests": []
-        }
-      }
-    },
-    "spatial-sc-rnaseq-integration-wdl-ci-custom-test-dir/check_zip.wdl": {
-      "key": "spatial-sc-rnaseq-integration-wdl-ci-custom-test-dir/check_zip.wdl",
-      "name": "",
-      "description": "",
-      "tasks": {
-        "check_zip": {
-          "key": "check_zip",
-          "digest": "",
-          "tests": []
-        }
-      }
     }
   },
   "engines": {
@@ -217,8 +189,16 @@
       "cohort_id": "asap-cohort",
       "workflow_name": "spatial_sc_rnaseq_integration",
       "workflow_version": "v1.0.0",
-      "workflow_release": "https://github.com/ASAP-CRN/spatial-sc-rnaseq-integration-wf/releases/tag/spatial_sc_rnaseq_integration-~{workflow_version}",
+      "workflow_release": "https://github.com/ASAP-CRN/spatial-sc-rnaseq-integration-wf/releases/tag/spatial_sc_rnaseq_integration-${workflow_version}",
       "cohort_raw_data_path": "gs://asap-wdl-ci/workflow_execution/${workflow_name}/${cohort_workflow_name}/${cohort_workflow_version}/${run_timestamp}",
+      "workflow_info": [
+        [
+          "${run_timestamp}",
+          "${workflow_name}",
+          "${workflow_version}",
+          "${workflow_release}"
+        ]
+      ],
       "run_timestamp": "2025-07-15T00-00-00Z",
       "cohort_workflow_name": "cell2location",
       "cohort_workflow_version": "1.0.0",
