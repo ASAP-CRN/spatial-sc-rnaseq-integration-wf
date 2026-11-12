@@ -131,9 +131,9 @@ workflow spatial_sc_rnaseq_integration {
 		String deconvolution_analysis_release_path = "spatial_visium/release/~{crn_release_version}/deconvolution_analysis"
 		String promotion_cluster_visium_path = "~{raw_data_path_prefix}/cluster_visium/~{deconvolution.cell2location_version_value}"
 
-		# corrected_sample_id comes from deconvolution.visium_corrected_sample_ids (single
-		# source of truth for the PMBDS->PMDBS fix, see deconvolution.wdl) instead of
-		# re-deriving it here.
+		# corrected_sample_id comes from deconvolution.visium_corrected_sample_ids (single source 
+		# of truth for the PMBDS->PMDBS fix, see deconvolution.wdl) instead of re-deriving it here.
+		# This is a temporary fix while spatial-transcriptomics-wf is re-run to fix underlying typos.
 		scatter (corrected_sample_id in deconvolution.visium_corrected_sample_ids) {
 			String deconvoluted_clustered_adata_path = "~{promotion_cluster_visium_path}/~{corrected_sample_id}.deconvoluted_clustered.h5ad"
 			String deconvolution_clustering_metadata_csv_path = "~{promotion_cluster_visium_path}/~{corrected_sample_id}.deconvolution_clustering_metadata.csv.gz"
@@ -229,15 +229,20 @@ task validate_staging_combination {
 		n_staging_buckets=~{length(staging_data_buckets)}
 
 		if [[ ${n_staging_buckets} -gt 0 && -n "${run_stages}" ]]; then
-			case ",${run_stages}," in
-				*,3,*)
-					;;
-				*)
-					echo "[ERROR] staging_data_buckets is set but run_stages=\"${run_stages}\" does not include Stage 3 and is not empty." >&2
-					echo "[ERROR] Promotion needs Stage 3's clustered outputs -- either set run_stages=\"\" to promote a previous run's outputs, or include Stage 3 in run_stages." >&2
-					exit 1
-					;;
-			esac
+			has3=0
+			IFS=',' read -ra stages <<< "${run_stages}"
+			for stage in "${stages[@]}"; do
+				stage="$(echo "${stage}" | xargs)"
+				if [[ "${stage}" == "3" ]]; then
+					has3=1
+				fi
+			done
+
+			if [[ ${has3} -eq 0 ]]; then
+				echo "[ERROR] staging_data_buckets is set but run_stages=\"${run_stages}\" does not include Stage 3 and is not empty." >&2
+				echo "[ERROR] Promotion needs Stage 3's clustered outputs -- either set run_stages=\"\" to promote a previous run's outputs, or include Stage 3 in run_stages." >&2
+				exit 1
+			fi
 		fi
 	>>>
 

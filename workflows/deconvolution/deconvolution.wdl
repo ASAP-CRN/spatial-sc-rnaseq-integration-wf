@@ -100,6 +100,7 @@ workflow deconvolution {
 	scatter (sample in visium_samples) {
 		# PMBDS->PMDBS fix computed once per sample, independent of run_stages -- both tasks below (and
 		# main.wdl's promotion wiring, via visium_corrected_sample_ids) consume this same value.
+		# This is a temporary fix while spatial-transcriptomics-wf is re-run to fix underlying typos.
 		String corrected_sample_id = sub(sample.sample_id, "^ASAP_PMBDS_", "ASAP_PMDBS_")
 
 		if (include_stage2) {
@@ -159,7 +160,8 @@ workflow deconvolution {
 		# Exposed so callers (e.g. main.wdl's promotion wiring) can reconstruct this run's raw
 		# output paths without duplicating this constant.
 		String cell2location_version_value = cell2location_version
-		# Exposed so callers (e.g. main.wdl) inherith PMBDS->PMDBS fix
+		# Exposed so callers (e.g. main.wdl) inherit PMBDS->PMDBS fix
+		# This is a temporary fix while spatial-transcriptomics-wf is re-run to fix underlying typos.
 		Array[String] visium_corrected_sample_ids = corrected_sample_id
 	}
 

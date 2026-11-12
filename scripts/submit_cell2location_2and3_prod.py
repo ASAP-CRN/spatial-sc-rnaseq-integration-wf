@@ -49,6 +49,7 @@ _DEFAULT_SUBMIT_CHUNKS = "all"
 _MAX_CHUNK_SIZE = 15
 
 # Matches deconvolution.wdl' PMBDS > PMDBS fix
+# This is a temporary fix while spatial-transcriptomics-wf is re-run to fix underlying typos.
 _PMBDS_PATTERN = re.compile(r"^ASAP_PMBDS_")
 
 # Workflow version for outdir like:
