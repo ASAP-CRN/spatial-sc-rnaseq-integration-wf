@@ -227,7 +227,7 @@ Workflow bumps are made like:
 
 This repo workflow details as of [PR#4](https://github.com/ASAP-CRN/spatial-sc-rnaseq-integration-wf/pull/4) (workflow v1.0.0 release, Dec 2026) are:
 * `<workbenck-workflow-id>: 865c2967-9af8-499d-9b70-aa10db6c49da`.
-* `<workbenck-workflow-registration-version>: v1.0.4`.
+* `<workbenck-workflow-registration-version>: v1.0.5`.
 
 # Submitting production runs via omics CLI
 
