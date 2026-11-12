@@ -50,11 +50,12 @@
         },
         "cell2location_deconvolute_visium": {
           "key": "cell2location_deconvolute_visium",
-          "digest": "hm2cwpyh24qwicsmxxjxpglwk62ohj4m",
+          "digest": "",
           "tests": [
             {
               "inputs": {
                 "sample_id": "ASAP_PMBDS_000003_s007_Rep1",
+                "corrected_sample_id": "ASAP_PMDBS_000003_s007_Rep1",
                 "spatial_adata": "${spatial_visium_preprocess_path}/ASAP_PMBDS_000003_s007_Rep1.cleaned_unfiltered.h5ad",
                 "sc_rnaseq_reference_cell2location_model": "${input_resources_file_path}/${cohort_workflow_name}/deconvolution_reference_30k_inf_aver.csv.gz",
                 "n_cells_per_spot": "${n_cells_per_spot}",
@@ -90,11 +91,12 @@
         },
         "cell2location_cluster_visium": {
           "key": "cell2location_cluster_visium",
-          "digest": "cbxqk43hv3u34tdrjjnkakuxna3dyusp",
+          "digest": "",
           "tests": [
             {
               "inputs": {
                 "sample_id": "ASAP_PMBDS_000003_s007_Rep1",
+                "corrected_sample_id": "ASAP_PMDBS_000003_s007_Rep1",
                 "spatial_deconvolution_adata": "${input_resources_file_path}/${cohort_workflow_name}/ASAP_PMDBS_000003_s007_Rep1.deconvoluted.h5ad",
                 "n_comps": "${n_comps}",
                 "n_neighbors": "${n_neighbors}",

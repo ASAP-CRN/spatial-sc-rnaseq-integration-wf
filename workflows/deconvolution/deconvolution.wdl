@@ -98,10 +98,15 @@ workflow deconvolution {
 
 	# scatter flat to deconvolute all spatial samples
 	scatter (sample in visium_samples) {
+		# PMBDS->PMDBS fix computed once per sample, independent of run_stages -- both tasks below (and
+		# main.wdl's promotion wiring, via visium_corrected_sample_ids) consume this same value.
+		String corrected_sample_id = sub(sample.sample_id, "^ASAP_PMBDS_", "ASAP_PMDBS_")
+
 		if (include_stage2) {
 			call cell2location_deconvolute_visium {
 				input:
 					sample_id = sample.sample_id,
+					corrected_sample_id = corrected_sample_id,
 					spatial_adata = sample.qc_adata_object,
 					sc_rnaseq_reference_cell2location_model = select_first([resolved_reference_model]),
 					n_cells_per_spot = n_cells_per_spot,
@@ -121,6 +126,7 @@ workflow deconvolution {
 			call cell2location_cluster_visium {
 				input:
 					sample_id = sample.sample_id,
+					corrected_sample_id = corrected_sample_id,
 					spatial_deconvolution_adata = select_first([cell2location_deconvolute_visium.deconvoluted_adata_object]), #!FileCoercion
 					n_comps = n_comps,
 					n_neighbors = n_neighbors,
@@ -153,6 +159,8 @@ workflow deconvolution {
 		# Exposed so callers (e.g. main.wdl's promotion wiring) can reconstruct this run's raw
 		# output paths without duplicating this constant.
 		String cell2location_version_value = cell2location_version
+		# Exposed so callers (e.g. main.wdl) inherith PMBDS->PMDBS fix
+		Array[String] visium_corrected_sample_ids = corrected_sample_id
 	}
 
 	parameter_meta {
@@ -189,6 +197,7 @@ workflow deconvolution {
 		sc_rnaseq_reference_training_history_png: {help: "GCS path to the NB regression (Stage 1) ELBO training-loss plot, built once for the whole cohort; null when run_stages excludes Stage 1."}
 		sc_rnaseq_reference_build_timing_tsv: {help: "GCS path to the per-step timing breakdown (Stage 1 run), built once for the whole cohort; null when run_stages excludes Stage 1."}
 		cell2location_version_value: {help: "Versioned subpath each cell2location task's raw outputs are uploaded under; always populated."}
+		visium_corrected_sample_ids: {help: "Per-sample IDs with the PMBDS->PMDBS fix applied, same order as visium_samples; always populated regardless of run_stages."}
 	}
 }
 
@@ -350,6 +359,8 @@ task cell2location_cluster_visium {
 
 	input {
 		String sample_id
+		String corrected_sample_id
+
 		File spatial_deconvolution_adata
 
 		Int n_comps
@@ -366,8 +377,6 @@ task cell2location_cluster_visium {
 	}
 
 	Int disk_size = ceil(size(spatial_deconvolution_adata, "GB") + 20)
-	# Fix expected sample_id in outfile name. This is a temporary fix while spatial-transcriptomics-wf is re-run to fix underlying typos.
-	String corrected_sample_id = sub(sample_id, "^ASAP_PMBDS_", "ASAP_PMDBS_")
 
 	command <<<
 		set -euo pipefail
@@ -423,6 +432,8 @@ task cell2location_deconvolute_visium {
 
 	input {
 		String sample_id
+		String corrected_sample_id
+
 		File spatial_adata
 		File sc_rnaseq_reference_cell2location_model
 
@@ -440,8 +451,6 @@ task cell2location_deconvolute_visium {
 	}
 
 	Int disk_size = ceil(size([spatial_adata, sc_rnaseq_reference_cell2location_model], "GB") + 50)
-	# Fix expected sample_id in outfile name. This is a temporary fix while spatial-transcriptomics-wf is re-run to fix underlying typos.
-	String corrected_sample_id = sub(sample_id, "^ASAP_PMBDS_", "ASAP_PMDBS_")
 
 	command <<<
 		set -euo pipefail
