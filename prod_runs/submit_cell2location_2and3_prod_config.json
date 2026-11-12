@@ -1,0 +1,16 @@
+{
+  "asap_team_id": "team-scherzer",
+  "asap_dataset_id": "PD5D_MTG_Visium10x_ST",
+  "asap_dataset_doi_url": "https://doi.org/10.5281/zenodo.17242087",
+  "raw_data_bucket": "gs://asap-raw-team-scherzer-pmdbs-spatial-visium-mtg",
+  "qc_adata_object_template": "gs://asap-raw-team-scherzer-pmdbs-spatial-visium-mtg/workflow_execution/spatial_visium/preprocess/counts_to_adata/1.0.0/{sample_id}.cleaned_unfiltered.h5ad",
+  "sc_rnaseq_reference_cell2location_model": "gs://asap-raw-team-scherzer-pmdbs-spatial-visium-mtg/workflow_execution/spatial_visium/deconvolution_analysis/build_reference/1.0.0/deconvolution_reference_strategy3_inf_aver.csv.gz",
+  "cohort_raw_data_bucket_spatial_sc_rnaseq": "gs://asap-raw-team-scherzer-pmdbs-spatial-visium-mtg",
+  "container_registry": "us-central1-docker.pkg.dev/dnastack-asap-parkinsons/workflow-images",
+  "workflow_id": "865c2967-9af8-499d-9b70-aa10db6c49da",
+  "workflow_version_name": "v1.0.4",
+  "preemptible": 0,
+  "batch_key": "batch_id",
+  "cell_type_key": "harmonized_cell_type_siletti_allen",
+  "outdir": "prod_runs"
+}

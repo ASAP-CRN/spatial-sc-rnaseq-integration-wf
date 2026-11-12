@@ -68,10 +68,6 @@ def resolve_marker_ensembl_ids(
     """
     Resolve gene symbols to Ensembl IDs via a source's var['feature_name'].
 
-    Some sources' own var has no gene-symbol column post-load (e.g. after
-    ad.concat(merge='same')), so this looks symbols up against a single
-    source's var['feature_name'] directly, not against a merged object.
-
     Parameters
     ----------
     feature_name : pd.Series
@@ -95,3 +91,61 @@ def resolve_marker_ensembl_ids(
         print(f"  Warning: {len(missing)}/{len(marker_symbols)} marker symbols "
               f"not found in {source_label}'s var['feature_name']: {missing}")
     return found.dropna().tolist()
+
+
+def apply_cell2location_gene_filter(
+    adata,
+    filter_genes_mode: str,
+    da_marker_ensembl_ids: list = None,
+):
+    """
+    Reduce `adata` to cell2location's data-driven recommended gene set.
+
+    Parameters
+    ----------
+    adata : anndata.AnnData
+        Raw-count AnnData (cells x genes), var_names = Ensembl gene IDs.
+    filter_genes_mode : str
+        "cell2location_default" : cell2location.utils.filtering.filter_genes
+            with the tutorial's defaults (cell_count_cutoff=5,
+            cell_percentage_cutoff2=0.03, nonz_mean_cutoff=1.12).
+        "cell2location_u_da" : cell2location_default, unioned with
+            `da_marker_ensembl_ids`.
+    da_marker_ensembl_ids : list, optional
+        Ensembl IDs to union back in when filter_genes_mode is
+        "cell2location_u_da" (ignored otherwise); required in that mode.
+
+    Returns
+    -------
+    anndata.AnnData
+        `adata` subset to the selected genes, original gene order preserved.
+
+    Raises
+    ------
+    ValueError
+        filter_genes_mode == "cell2location_u_da" but da_marker_ensembl_ids
+        is None.
+    """
+    import matplotlib
+    matplotlib.use("Agg")
+    from cell2location.utils.filtering import filter_genes as c2l_filter_genes
+
+    n_before = adata.n_vars
+    selected = set(c2l_filter_genes(
+        adata, cell_count_cutoff=5, cell_percentage_cutoff2=0.03, nonz_mean_cutoff=1.12
+    ))
+    print(f"  cell2location filter_genes: {n_before:,} → {len(selected):,} genes")
+
+    if filter_genes_mode == "cell2location_u_da":
+        if da_marker_ensembl_ids is None:
+            raise ValueError(
+                "filter_genes_mode='cell2location_u_da' requires da_marker_ensembl_ids."
+            )
+        added = [g for g in da_marker_ensembl_ids if g in adata.var_names and g not in selected]
+        selected.update(added)
+        print(f"  + {len(added)} Kamath DA marker gene(s) added back via union "
+              f"(present in the gene set but dropped by the cell2location filter)")
+
+    keep = [g for g in adata.var_names if g in selected]
+    print(f"  Final gene set: {len(keep):,} genes")
+    return adata[:, keep].copy()

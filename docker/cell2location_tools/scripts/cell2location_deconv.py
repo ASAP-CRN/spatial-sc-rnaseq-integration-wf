@@ -14,10 +14,16 @@ Outputs
 -------
 {sample_id}.deconvoluted.h5ad
     Spatial AnnData with Cell2location results in .obsm and per-spot fraction in .obs.
-    Only written when 2 and/or 3 is in --run-stages.
+    Written when Stage 2 runs without Stage 3.
 {sample_id}.deconvolution_metadata.csv.gz
     Per-spot table: cell type fractions + obs columns for downstream reporting.
-    Only written when 2 and/or 3 is in --run-stages.
+    Written when Stage 2 runs without Stage 3.
+{sample_id}.deconvoluted_clustered.h5ad
+    Same as above, plus downstream Leiden clustering.
+    Written when Stage 3 runs.
+{sample_id}.deconvolution_clustering_metadata.csv.gz
+    Same as above, plus Leiden cluster assignments.
+    Written when Stage 3 runs.
 {ref_stem}_inf_aver.csv.gz
     Reference signatures (genes × cell types); only written when 1 is in --run-stages.
     {ref_stem} is the stem of the reference h5ad filename.
@@ -47,6 +53,8 @@ import numpy as np
 import pandas as pd
 import anndata as ad
 import scanpy as sc
+import scvi
+import torch
 from cell2location.models import Cell2location, RegressionModel
 from scipy.sparse import issparse
 
@@ -73,6 +81,7 @@ _REF_BATCH_SIZE  = 2_500    # posterior sampling batch size (tutorial default)
 _TRAIN_SIZE      = 1        # tutorial default
 
 _ACCELERATOR     = get_accelerator()  # auto-selects: "gpu" (CUDA) > "mps" (Apple Silicon) > "cpu"
+_SEED            = 0  # seed for same machine system. Note that "gpu" vs. "mps" still introduces non-determinism.
 
 _EXPORT_POSTERIOR_SUBPROCESS_SCRIPT = Path(__file__).resolve().parent / "_export_posterior_subprocess.py"
 
@@ -156,7 +165,7 @@ def _load_reference(ref_h5ad: str, cell_type_key: str, min_cells_per_type: int) 
     Parameters
     ----------
     ref_h5ad : str
-        All-gene reference h5ad (QC-filtered, raw counts); must contain `cell_type_key` in .obs.
+        Reference h5ad (raw UMI counts, all genes--not only HVGs); must contain `cell_type_key` in .obs.
     cell_type_key : str
         Column in .obs to use as the cell type label.
     min_cells_per_type : int
@@ -198,7 +207,9 @@ def _load_reference(ref_h5ad: str, cell_type_key: str, min_cells_per_type: int) 
 
 
 def _correct_sample_id(sample_id: str) -> str:
-    """Return `sample_id` with the known ASAP typo PMBDS → PMDBS corrected."""
+    """Return `sample_id` with the known ASAP typo PMBDS → PMDBS corrected.
+    This is a temporary fix while spatial-transcriptomics-wf is re-run to
+    fix underlying typos. """
     if sample_id.startswith("ASAP_PMBDS_"):
         return "ASAP_PMDBS_" + sample_id[len("ASAP_PMBDS_"):]
     return sample_id
@@ -251,7 +262,7 @@ def _load_spatial(
     Parameters
     ----------
     spatial_h5ad : str
-        Path to per-sample Visium h5ad (raw UMI counts, post-QC).
+        Path to per-sample Visium h5ad (raw UMI counts, all genes--not only HVGs).
     sample_id : str
         Sample identifier; "ASAP_PMBDS_" is auto-corrected to "ASAP_PMDBS_".
 
@@ -393,7 +404,7 @@ def _run_cell2location_visium(
     Parameters
     ----------
     adata_spatial : anndata.AnnData
-        Per-sample Visium adata (spots × genes, raw UMI counts).
+        Per-sample Visium adata (spots × genes, raw UMI counts, all genes--not only HVGs).
     inf_aver : pandas.DataFrame
         Reference signatures from `_build_reference_signatures` (genes × cell types).
     n_cells_per_spot : int
@@ -500,13 +511,13 @@ def _downstream_analysis(
     sc.tl.pca(adata_tmp, n_comps=min(n_comps, fractions.shape[1] - 1))
     sc.pp.neighbors(adata_tmp, n_neighbors=n_neighbors, n_pcs=adata_tmp.obsm["X_pca"].shape[1])
     sc.tl.umap(adata_tmp)
-    adata_spatial.obsm["X_pca_fractions"]  = adata_tmp.obsm["X_pca"]
-    adata_spatial.obsm["X_umap_fractions"] = adata_tmp.obsm["X_umap"]
-    adata_spatial.obsp["connectivities"]   = adata_tmp.obsp["connectivities"]
-    adata_spatial.obsp["distances"]        = adata_tmp.obsp["distances"]
-    adata_spatial.uns["neighbors"]         = adata_tmp.uns["neighbors"]
+    adata_spatial.obsm["cell2location_X_pca_fractions"]  = adata_tmp.obsm["X_pca"]
+    adata_spatial.obsm["cell2location_X_umap_fractions"] = adata_tmp.obsm["X_umap"]
+    adata_spatial.obsp["cell2location_connectivities"]   = adata_tmp.obsp["connectivities"]
+    adata_spatial.obsp["cell2location_distances"]        = adata_tmp.obsp["distances"]
+    adata_spatial.uns["cell2location_neighbors"]         = adata_tmp.uns["neighbors"]
     for res in leiden_res:
-        key = f"leiden_res_{str(res).replace('.', '_')}"
+        key = f"cell2location_leiden_res_{str(res).replace('.', '_')}"
         sc.tl.leiden(adata_tmp, resolution=res, key_added=key,
                      flavor="igraph", n_iterations=2, directed=False)
         adata_spatial.obs[key] = adata_tmp.obs[key].values
@@ -543,6 +554,7 @@ def deconvolute_visium(
     output_dir: str,
     promote: bool,
     run_stages: set,
+    write_h5ad: bool = True,
     keep_checkpoints: bool = False,
 ) -> None:
     """
@@ -591,6 +603,9 @@ def deconvolute_visium(
     run_stages : set of int
         Non-empty subset of {1, 2, 3} selecting which stages run; see module docstring for
         full semantics and examples.
+    write_h5ad : bool
+        If False, skip writing the `.h5ad` output and only write the metadata CSV.
+        Has no effect when neither Stage 2 nor Stage 3 is in `run_stages`.
     keep_checkpoints : bool
         If True, retain model checkpoint directories and intermediate posterior h5ad files.
 
@@ -609,15 +624,20 @@ def deconvolute_visium(
     )
     if write_sample_outputs:
         sample_id = _correct_sample_id(sample_id)
-        out_h5ad  = os.path.join(output_dir, f"{sample_id}.deconvoluted.h5ad")
-        out_csv   = os.path.join(output_dir, f"{sample_id}.deconvolution_metadata.csv.gz")
+        if run_stage3:
+            out_h5ad = os.path.join(output_dir, f"{sample_id}.deconvoluted_clustered.h5ad")
+            out_csv  = os.path.join(output_dir, f"{sample_id}.deconvolution_clustering_metadata.csv.gz")
+        else:
+            out_h5ad = os.path.join(output_dir, f"{sample_id}.deconvoluted.h5ad")
+            out_csv  = os.path.join(output_dir, f"{sample_id}.deconvolution_metadata.csv.gz")
 
     if not promote:
         print(f"[DRY-RUN] Would write:")
         if run_stage1:
             print(f"  {out_inf_aver}")
         if write_sample_outputs:
-            print(f"  {out_h5ad}")
+            if write_h5ad:
+                print(f"  {out_h5ad}")
             print(f"  {out_csv}")
         print("Re-run with --promote to write outputs.")
         return
@@ -685,12 +705,13 @@ def deconvolute_visium(
 
     # --- Write outputs ---
     t0 = time.time()
-    print(f"[INFO] Writing {out_h5ad} ...")
-    adata_spatial.write_h5ad(out_h5ad, compression="lzf")
+    if write_h5ad:
+        print(f"[INFO] Writing {out_h5ad} ...")
+        adata_spatial.write_h5ad(out_h5ad, compression="lzf")
     meta_cols = (
         [c for c in adata_spatial.obs.columns if c.startswith("frac_")]
-        + [c for c in adata_spatial.obs.columns if c.startswith("leiden_")]
-        + [c for c in adata_spatial.obs.columns if not c.startswith("frac_") and not c.startswith("leiden_")]
+        + [c for c in adata_spatial.obs.columns if c.startswith("cell2location_leiden_res_")]
+        + [c for c in adata_spatial.obs.columns if not c.startswith("frac_") and not c.startswith("cell2location_leiden_res_")]
     )
     adata_spatial.obs[meta_cols].to_csv(out_csv, compression="gzip")
     print(f"[INFO] Writing {out_csv} ...")
@@ -810,9 +831,14 @@ def _validate_run_stages(
 
     return parsed_run_stages
 
-
 def main() -> None:
     args = _parse_args()
+
+    # Fix seed for same system. VM cuda vs. Mac mps still can have differences.
+    scvi.settings.seed = args.seed
+    if torch.backends.mps.is_available():
+        torch.mps.manual_seed(args.seed)
+
     run_stages = _validate_run_stages(
         run_stages=args.run_stages,
         sc_rnaseq_reference_adata=args.sc_rnaseq_reference_adata,
@@ -846,6 +872,7 @@ def main() -> None:
         output_dir         = args.output_dir,
         promote            = args.promote,
         run_stages         = run_stages,
+        write_h5ad         = args.write_h5ad,
         keep_checkpoints   = args.keep_checkpoints,
     )
 
@@ -867,10 +894,17 @@ def _parse_args() -> argparse.Namespace:
         help="Directory to write output files. Default: current directory")
     general.add_argument("--promote",                     action="store_true", default=False,
         help="Write output files. Default is dry-run (prints what would happen).")
+    general.add_argument("--write-h5ad",                  action=argparse.BooleanOptionalAction, default=True,
+        help="Write the per-sample `.h5ad` output in addition to the metadata CSV.\n"
+             "Use --no-write-h5ad to write only the metadata CSV. Has no effect in Stage-1-only mode.\n"
+             "Default: True")
+    general.add_argument("--seed",                        type=int, default=_SEED,
+        help="Random seed for same system torch/numpy/scvi-tools training.\n"
+             f"Default: {_SEED}")
 
     stage1 = parser.add_argument_group("Stage 1 — NB regression (reference signatures)")
     stage1.add_argument("--sc-rnaseq-reference-adata",    default=None,
-        help="scRNA-seq reference h5ad (QC-filtered cells × all genes, raw counts).\n"
+        help="scRNA-seq reference h5ad (QC-filtered cells × all genes--not only HVGs, raw UMI counts).\n"
              "Trains Stage 1 NB regression and saves <ref_stem>_inf_aver.csv.gz to --output-dir.\n"
              "Required when Stage 1 is in --run-stages.")
     stage1.add_argument("--batch-key",                    default="batch_id",
@@ -888,7 +922,7 @@ def _parse_args() -> argparse.Namespace:
 
     stage2 = parser.add_argument_group("Stage 2 — Cell2location spatial mapping")
     stage2.add_argument("--spatial-h5ad",                 default=None,
-        help="Per-sample spatial h5ad (raw UMI counts, post-QC).\n"
+        help="Per-sample spatial h5ad (raw UMI counts, all genes--not only HVGs).\n"
              "Required when Stage 2 is in --run-stages.")
     stage2.add_argument("--sc-rnaseq-reference-cell2location-model", default=None,
         help="Path to a pre-computed scRNA-seq reference signatures file <ref_stem>_inf_aver.csv.gz produced by a previous run.\n"

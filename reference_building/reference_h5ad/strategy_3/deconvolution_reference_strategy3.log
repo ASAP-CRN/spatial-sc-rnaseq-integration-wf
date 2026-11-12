@@ -1,0 +1,86 @@
+[2026-11-03 19:25:42] reference_building/da_neurons_identification_analysis/scripts/downsample_kamath_siletti_asap_strategy3.py -i reference_building/reference_h5ad/strategy_3/downsample_kamath_siletti_asap_strategy3.json --promote
+[INFO] Loading Strategy 1 (sc-rnaseq-wf's v3.1.0) reference barcodes from /Users/javier.diazmejia/asap_repos/spatial-sc-rnaseq-integration-wf/reference_building/reference_h5ad/strategy_1/deconvolution_reference_300k_c2lUda_Kamath200Rand.h5ad
+  99,329 Strategy 1 (sc-rnaseq-wf's v3.1.0) Kamath barcode(s)
+[INFO] Loading raw Kamath counts from /Users/javier.diazmejia/asap_repos/spatial-sc-rnaseq-integration-wf/reference_building/da_neurons_identification_analysis/reference_data/kamath/intermediate/kamath_merged_cell_type_min200_100000_preQC.h5ad
+  99,329 cells x 33,295 genes
+  99,553 Strategy 1 (sc-rnaseq-wf's v3.1.0) Siletti barcode(s)
+[INFO] Loading raw Siletti counts from /Users/javier.diazmejia/asap_repos/spatial-sc-rnaseq-integration-wf/reference_building/da_neurons_identification_analysis/reference_data/siletti/intermediate/midbrain_da_neurons15000_cells47643_preQC.h5ad
+  99,553 cells x 58,232 genes
+  94,833 Strategy 1 (sc-rnaseq-wf's v3.1.0) ASAP barcode(s)
+  94,833 Strategy 1 (sc-rnaseq-wf's v3.1.0) ASAP barcode(s) parsed
+[INFO] Loading v5.0.0 ASAP metadata from /Users/javier.diazmejia/asap_repos/spatial-sc-rnaseq-integration-wf/reference_building/da_neurons_identification_analysis/reference_data/asap_cohort/pmdbs_sc_rnaseq/cohort_analysis/5.0.0/2026-10-19T14-59-48Z/asap-cohort.final_metadata.csv.gz
+  2,948,956 total rows; 2,827,846 native ASAP cell(s) (source is NaN)
+[INFO] Mapping Strategy 1 (sc-rnaseq-wf's v3.1.0) ASAP barcodes to v5.0.0 ...
+  68,113 v3.1.0 ASAP barcode(s) re-identified 1:1 in v5.0.0
+  11,062 additional native ASAP DA cell(s) available for top-up
+[INFO] C_scANVI='Bergmann glia': had 6, topped up 9 (reached)
+[INFO] C_scANVI='CALB1_CRYM_CCDC68': had 3, topped up 0 (capped, only 3 available)
+[INFO] C_scANVI='CALB1_TRHR': had 9, topped up 0 (capped, only 9 available)
+[INFO] C_scANVI='Cerebellar inhibitory': had 4, topped up 11 (reached)
+[INFO] C_scANVI='Choroid plexus': had 11, topped up 4 (reached)
+[INFO] C_scANVI='Mammillary body': had 0, topped up 2 (capped, only 2 available)
+  Random-filled 20,799 more native ASAP cell(s) to reach 100,000
+[INFO] 100,000 ASAP barcode(s) selected total (68,113 mapped_from_v3.1.0, 11,062 da_topup, 26 type_topup, 20,799 random_fill)
+[INFO] Loading raw ASAP counts from /Users/javier.diazmejia/asap_repos/spatial-sc-rnaseq-integration-wf/reference_building/da_neurons_identification_analysis/reference_data/asap_cohort/pmdbs_sc_rnaseq/cohort_analysis/5.0.0/2026-10-19T14-59-48Z/asap-cohort.merged_cleaned_unfiltered.h5ad
+  100,000 cells x 38,606 genes
+[INFO] Concatenating Kamath + Siletti + ASAP (inner join on genes) ...
+[INFO] Combined: 298,882 cells x 29,167 genes
+source
+asap_cohort    100000
+siletti         99553
+kamath          99329
+Name: count, dtype: int64
+harmonized_cell_type_siletti_allen
+Oligodendrocyte                        114563
+Splatter                                32003
+Astrocyte                               25831
+Microglia                               21989
+Upper-layer intratelencephalic          18281
+Oligodendrocyte precursor               14590
+Miscellaneous                           11954
+Midbrain-derived inhibitory              9505
+SOX6_AGTR1                               7071
+Deep-layer intratelencephalic            7000
+SOX6_DDT                                 5818
+Vascular                                 5474
+CGE interneuron                          4617
+MGE interneuron                          3849
+Lower rhombic lip                        2211
+Deep-layer corticothalamic and 6b        1524
+CALB1_CALCR                              1384
+Medium spiny neuron                      1384
+Fibroblast                               1294
+Committed oligodendrocyte precursor      1193
+LAMP5-LHX6 and Chandelier                 976
+SOX6_PART1                                938
+SOX6_GFRA2                                893
+Hippocampal dentate gyrus                 593
+Deep-layer near-projecting                548
+Thalamic excitatory                       538
+CALB1_PPP1R17                             506
+CALB1_GEM                                 361
+CALB1_CRYM_CCDC68                         360
+CALB1_RBP4                                335
+Hippocampal CA1-3                         295
+CALB1_TRHR                                270
+Ependymal                                 254
+Upper rhombic lip                         191
+Hippocampal CA4                            90
+Amygdala excitatory                        74
+Eccentric medium spiny neuron              53
+Cerebellar inhibitory                      26
+Choroid plexus                             17
+Bergmann glia                              17
+Mammillary body                            12
+Name: count, dtype: int64
+[INFO] Dropped 0 cells from 0 batch(es) with < 15 cells ('batch_id'). 298,882 cells remaining.
+[INFO] Applying --filter-genes cell2location_u_da ...
+/Users/javier.diazmejia/venv_cell2location/lib/python3.12/site-packages/pandas/core/arraylike.py:399: RuntimeWarning: divide by zero encountered in log10
+  result = getattr(ufunc, method)(*inputs, **kwargs)
+/Users/javier.diazmejia/venv_cell2location/lib/python3.12/site-packages/cell2location/utils/filtering.py:63: UserWarning: FigureCanvasAgg is non-interactive, and thus cannot be shown
+  plt.show()
+  cell2location filter_genes: 29,167 → 17,411 genes
+  + 0 Kamath DA marker gene(s) added back via union (present in the gene set but dropped by the cell2location filter)
+  Final gene set: 17,411 genes
+[INFO] After gene filtering: 298,882 cells x 17,411 genes
+[DONE] Written /Users/javier.diazmejia/asap_repos/spatial-sc-rnaseq-integration-wf/reference_building/reference_h5ad/strategy_3/deconvolution_reference_strategy3.h5ad
