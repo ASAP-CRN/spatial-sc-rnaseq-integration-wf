@@ -24,7 +24,8 @@ Common workflows, tasks, utility scripts, and docker images reused across harmon
 - [Docker images](#docker-images)
 - [Tool and library versions](#tool-and-library-versions)
 - [wdl-ci test runs](#wdl-ci-test-runs)
-- [Registering workflow and submitting production runs via omics CLI](#registering-workflow-and-submitting-production-runs-via-omics-cli)
+- [Registering workflows in Workbench](#registering-workflows-in-workbench)
+- [Submitting production runs via omics CLI](#submitting-production-runs-via-omics-cli)
 
 
 # Workflows
@@ -182,9 +183,13 @@ Wired directly in `main.wdl` via `upload_deconvolution_outputs`, gated on `stagi
 
 # Docker images
 
-Docker images are defined in [the docker/ directory](docker), each with a `build.env`, `Dockerfile`, and `cloudbuild.yaml` (see [docker/cell2location_tools](docker/cell2location_tools)). Images are built and pushed to Artifact Registry via [Google Cloud Build](https://cloud.google.com/build/docs/overview) (`gcloud builds submit --config=<image>/cloudbuild.yaml`). IMAGE_TAG remained `1.0.0` across all builds so far.
+Docker images are defined in [the docker/ directory](docker), each with a `build.env`, `Dockerfile`, and `cloudbuild.yaml` (see [docker/cell2location_tools](docker/cell2location_tools)). Images are built and pushed to Artifact Registry via [Google Cloud Build](https://cloud.google.com/build/docs/overview) (`gcloud builds submit --config=docker/cell2location_tools/cloudbuild.yaml`).
 
-## Tool and library versions
+Image details as of [PR#4](https://github.com/ASAP-CRN/spatial-sc-rnaseq-integration-wf/pull/4) (workflow v1.0.0 release, Dec 2026)
+* `ID: 7a97a551-b395-46f1-ab7c-e84838706ca3`.
+* `IMAGE_TAG` remained `1.0.0` across all builds so far.
+
+### Tool and library versions
 
 | Image | Major tool versions | Links |
 | :- | :- | :- |
@@ -203,12 +208,30 @@ For CI script testing, these inputs can be used:
 - One ASAP spatial sample: `gs://asap-wdl-ci/workflow_execution/spatial_visium/preprocess/counts_to_adata/1.0.0/ASAP_PMBDS_000003_s007_Rep1.cleaned_unfiltered.h5ad`
 
 
-# Registering workflow and submitting production runs via omics CLI
+# Registering workflows in Workbench
 
-The wokflow is registered through [DNAstack Workbench](https://docs.omics.ai/docs) using:
-* `omics workbench workflows create --entrypoint workflows/main.wdl --version-name <version>`
+A new [DNAstack Workbench](https://docs.omics.ai/docs) wokflow registration is made like:
+  ```bash
+      omics workbench workflows create --entrypoint workflows/main.wdl --version-name v1.0.0
+  ```
 
-Afterwards, production runs are submitted as follows:
+Workflow bumps are made like:
+  ```bash
+      omics workbench workflows versions create \
+      workflows/main.wdl workflows/structs.wdl workflows/deconvolution/deconvolution.wdl \
+      wf-common/wdl/tasks/get_workflow_metadata.wdl wf-common/wdl/tasks/upload_final_outputs.wdl \
+      --workflow <workbenck-workflow-id> \
+      --name <workbenck-workflow-registration-version> \
+      --entrypoint workflows/main.wdl
+  ```
+
+This repo workflow details as of [PR#4](https://github.com/ASAP-CRN/spatial-sc-rnaseq-integration-wf/pull/4) (workflow v1.0.0 release, Dec 2026) are:
+* `<workbenck-workflow-id>: 865c2967-9af8-499d-9b70-aa10db6c49da`.
+* `<workbenck-workflow-registration-version>: v1.0.4`.
+
+# Submitting production runs via omics CLI
+
+After workflows are registered in [DNAstack Workbench](#registering-workflows-in-workbench), production runs are submitted as follows:
 
 - **Stage 1** — builds the `inf_aver.csv.gz` to be re-used for each spatial sample deconvolution in stage 2.
   ```bash
@@ -231,7 +254,7 @@ Afterwards, production runs are submitted as follows:
 - **Data promotion** - promotes all 95 spatial samples' outfiles from raw → dev/uat.
   ```bash
   omics workbench runs submit \
-      --workflow 865c2967-9af8-499d-9b70-aa10db6c49da \
-      --version v1.0.3 \
+      --workflow <workbenck-workflow-id> \
+      --version <workbenck-workflow-registration-version> \
       --workflow-params @prod_runs/promote_raw_to_dev_uat_v6.0.0_all95samples.json
   ```
