@@ -49,7 +49,7 @@ The deconvolution workflow receives processed AnnData objects (`.h5ad`) from the
 The Cell2Location deconvolution sub-workflow ([workflows/deconvolution/deconvolution.wdl](workflows/deconvolution/deconvolution.wdl)) runs as three independent WDL tasks/stages, gated by `run_stages`:
 1. **Stage 1 — Reference build**: train a Negative Binomial regression model on the scRNA-seq reference to estimate per-cell-type gene expression signatures (`inf_aver`). Runs **once for all spatial samples**.
 2. **Stage 2 — Spatial mapping**: run Cell2location to map cell type abundances onto Visium spots. Runs once **per Visium sample**, submitted in batches of 15 samples in parallel by [scripts/submit_cell2location_2and3_prod.py](scripts/submit_cell2location_2and3_prod.py) to meet the project on-demand NVIDIA T4 GPU quota. Writes `{sample_id}.deconvoluted.h5ad` / `{sample_id}.deconvolution_metadata.csv.gz`.
-3. **Stage 3 — Clustering**: PCA → neighbours → UMAP → Leiden clustering on each spot's **deconvolved cell type fractions** — not on gene expression. Runs once **per Visium sample**, scattered in parallel along stage 2. Writes `{sample_id}.deconvoluted_clustered.h5ad` / `{sample_id}.deconvolution_clustering_metadata.csv.gz`. **Requires Stage 2 in the same submission** — standalone `run_stages` values of `"3"`/`"1,3"` aren't supported.
+3. **Stage 3 — Clustering**: PCA → neighbours → UMAP → Leiden clustering on each spot's **deconvolved cell type fractions** — not on gene expression. Runs once **per Visium sample**, scattered in parallel along stage 2. Writes `{sample_id}.deconvoluted_clustered.h5ad` / `{sample_id}.deconvolution_clustering_metadata.csv.gz`. **Requires Stage 2 in the same submission** — standalone `run_stages` values of `"3"`/`"1,3"` aren't supported in this repo v1.0.0.
 
 
 ### Cell2Location
@@ -57,7 +57,7 @@ The Cell2Location deconvolution sub-workflow ([workflows/deconvolution/deconvolu
 | Method | Reference | Language | Docker image | Hardware requiriments |
 | :- | :- | :- | :- | :- |
 | [Cell2location](https://github.com/BayraktarLab/cell2location), Bayesian hierarchical model | [Kleshchevnikov *et al.*, *Nat Biotechnol* 2022](https://pubmed.ncbi.nlm.nih.gov/35027729/) | Python | `cell2location_tools` | Stages 1 and 2 require a GPU, stage 3 requires CPU only. This repo runs in a VM with the following specs: CPU = 8, MEM = 52 GB, GPU = 1× nvidia-tesla-t4 |
-* See [Registering workflow and submitting production runs via omics CLI](#registering-workflow-and-submitting-production-runs-via-omics-cli) for details.
+* See [Submitting production runs via omics CLI](#submitting-production-runs-via-omics-cli) for submission details.
 * An alternative method ([RCTD](https://github.com/dmcable/spacexr)) was used for a [benchmark analysis vs. Ma et al (2025) data](reference_building/benchmark/README.md) but it was not implemented in this repo v1.0.0.
 
 
@@ -65,7 +65,7 @@ The Cell2Location deconvolution sub-workflow ([workflows/deconvolution/deconvolu
 
 Input templates can be found at [Input JSON's](#input-jsons).
 
-| WDL field | Type | Description | Stage 1 | Stages 2+3 | Data promotion |
+| WDL field | Type | Description [default] | Stage 1 | Stages 2+3 | Data promotion |
 | :- | :- | :- | :- | :- | :- |
 | run_stages | String? | Comma-separated subset of `{1,2,3}` — which stages to run. `"1"` builds the `inf_aver.csv.gz` reference; `"2"` loads it and deconvolutes spatial samples; `"3"` Leiden-clusters each sample's deconvolved cell type fractions. Stage 3 requires Stage 2 in the same submission — `"3"` and `"1,3"` alone are not currently supported. ['1,2,3'] | ✓ | ✓ | ✓ |
 | cohort_raw_data_bucket_spatial_sc_rnaseq | String | Raw data bucket root where outfiles are uploaded. | ✓ | ✓ | ✓ |
@@ -92,7 +92,7 @@ Input templates can be found at [Input JSON's](#input-jsons).
 
 ### `SpatialVisiumProject`
 
-Groups per-sample Visium adatas from [spatial-transcriptomics-wf](https://github.com/ASAP-CRN/spatial-transcriptomics-wf) `spatial_visium preprocess` for a single team/dataset. Samples are flattened across projects and deconvoluted independently.
+Groups per-sample Visium adatas from [spatial-transcriptomics-wf](https://github.com/ASAP-CRN/spatial-transcriptomics-wf) `spatial_visium preprocess`. Samples are flattened across projects and deconvoluted independently.
 
 | Type | Name | Description |
 | :- | :- | :- |
@@ -109,7 +109,7 @@ One Visium sample, with raw UMI counts and all genes--not only HVGs from [spatia
 | Type | Name | Description |
 | :- | :- | :- |
 | String | sample_id | Sample identifier; used to name output files. |
-| File | qc_adata_object | `spatial_visium preprocess.qc_adata_objects` (`*cleaned_unfiltered.h5ad`) — per-sample, raw UMI counts, all genes--not only HVGs. |
+| File | qc_adata_object | `spatial_visium preprocess.qc_adata_objects` — per-sample, raw UMI counts, all genes--not only HVGs. |
 
 ## Input JSON's
 
@@ -175,7 +175,7 @@ Only Stage 3's clustered outputs are promoted to dev/uat.
 
 ## Promoting data raw → dev/uat
 
-Wired directly in `main.wdl` via `upload_deconvolution_outputs`, gated on `staging_data_buckets` being non-empty. Setting `run_stages=""` promotes already-computed outputs. See [Registering workflow and submitting production runs via omics CLI](#registering-workflow-and-submitting-production-runs-via-omics-cli) for the 95-sample promotion example.
+Wired directly in `main.wdl` via `upload_deconvolution_outputs`, gated on `staging_data_buckets` being non-empty. Setting `run_stages=""` promotes already-computed outputs. See  [Submitting production runs via omics CLI](#submitting-production-runs-via-omics-cli) for the 95-sample promotion example.
 
 ## Promoting data dev/uat → curated
 
@@ -201,7 +201,7 @@ Image details as of [PR#4](https://github.com/ASAP-CRN/spatial-sc-rnaseq-integra
 
 [`wdl-ci`](https://github.com/DNAstack/wdl-ci) validates and tests this repo's WDL tasks/workflows, using [wdl-ci.config.json](./wdl-ci.config.json). Two ways to run it:
   1. **GitHub Actions** ([.github/workflows/lint-test-workflows.yml](.github/workflows/lint-test-workflows.yml)) — automatic on every PR (`on: pull_request`), skip with a commit message including `[skip ci]`.
-  2. **Local CLI** — run five CI subcommands directly against Workbench/Cromwell, no GitHub Actions involved. See [scripts/submit_wdl_ci_local.sh](scripts/submit_wdl_ci_local.sh) (requires `wdl-ci` and a 1Password env-file).
+  2. **Local CLI** — run five CI subcommands directly against Workbench/Cromwell, no GitHub Actions involved. See [scripts/submit_wdl_ci_local.sh](scripts/submit_wdl_ci_local.sh) (requires `wdl-ci` and a [1Password](https://1password.com/) env-file).
 
 For CI script testing, these inputs can be used:
 - 30,000 cells sc-RNAseq reference: `gs://asap-wdl-ci/workflow_execution/spatial_sc_rnaseq_integration/reference_building/reference_h5ad/deconvolution_reference_30k.h5ad`
