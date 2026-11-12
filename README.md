@@ -104,7 +104,7 @@ Groups per-sample Visium adatas from [spatial-transcriptomics-wf](https://github
 
 ### `SpatialVisiumSample`
 
-One Visium sample, with raw UMI counts and all genes--not only HVGs from [spatial-transcriptomics-wf](https://github.com/ASAP-CRN/spatial-transcriptomics-wf) (`*cleaned_unfiltered.h5ad`). Source: `spatial_visium preprocess.qc_adata_objects`. These can be obtained from the dataset buckets: `gs://asap-raw-<dataset_name>/workflow_execution/spatial_visium/preprocess/counts_to_adata/<version>`.
+One Visium sample, with raw UMI counts and all genes--not only HVGs from [spatial-transcriptomics-wf](https://github.com/ASAP-CRN/spatial-transcriptomics-wf) (`*cleaned_unfiltered.h5ad`). Source: `spatial_visium preprocess.qc_adata_objects`. These can be obtained from the dataset buckets: `gs://asap-raw-<dataset_name>/workflow_execution/spatial_visium/preprocess/counts_to_adata/<version>`. Spots are those Space Ranger flagged `in_tissue = 1`. This workflow doesn't apply additional spot-level QC/filtering. The user can obtain the [spatial-transcriptomics-wf](https://github.com/ASAP-CRN/spatial-transcriptomics-wf) own's QC metrics from `gs://asap-raw-<dataset_name>/workflow_execution/spatial_visium/qc/<version>`.
 
 | Type | Name | Description |
 | :- | :- | :- |
