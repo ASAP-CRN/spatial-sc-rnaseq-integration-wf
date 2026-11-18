@@ -2,17 +2,22 @@
 Shared input-location definitions for spatial-sc-rnaseq-integration-wf notebooks.
 
 Centralizes dataset names, GCS/local path conventions, and filename suffixes
-that recur across notebooks (ASAP raw/promoted H5ADs, Ma et al. 2025 benchmark H5ADs).
+that recur across notebooks (ASAP raw/promoted H5ADs, Ma et al. 2025
+benchmark H5ADs), so a path-convention change needs editing in one place
+rather than every notebook that references it.
 """
 
 # ----- ASAP (team-scherzer-pmdbs-spatial-visium-mtg) -----
 
 ASAP_DATASET_NAME = "team-scherzer-pmdbs-spatial-visium-mtg"
 
-# Raw/all-genes H5ADs
+# Raw/all-genes H5ADs (QC input, pre-cell2location) -- cell2location's own
+# H5ADs are HVG-filtered, so this is the only place marker genes are
+# guaranteed present.
 ASAP_RAW_H5AD_SUFFIX = ".cleaned_unfiltered.h5ad"
 
-# cell2location deconvolution stage 3 outputs.
+# cell2location deconvolution outputs, both for ASAP and for the Ma (2025)
+# benchmark -- same suffix convention either way.
 DECONVOLUTED_H5AD_SUFFIX = ".deconvoluted_clustered.h5ad"
 
 
@@ -158,3 +163,29 @@ def ma_benchmark_csv_path(repo_root):
     str
     """
     return str(ma_base_dir(repo_root) / "per_spot_benchmark_al_dalahmah_sn.csv.gz")
+
+
+# Must match the ALL_SAMPLES_LABEL constant in each
+# 08_cell_type_co_occurrence_reference_RefStrategyN.py script -- these live
+# in two places (script and notebook side) because the ma/scripts/ family
+# is deliberately self-contained and doesn't import from utils/.
+MA_COOCCURRENCE_ALL_SAMPLES_LABEL = "All samples (pooled)"
+
+
+def ma_cooccurrence_csv_path(repo_root, strategy_n):
+    """
+    Path to Strategy `strategy_n`'s precomputed cell-type co-occurrence table,
+    from 08_cell_type_co_occurrence_reference_RefStrategyN.py.
+
+    Parameters
+    ----------
+    repo_root : pathlib.Path
+        Repo root, from `get_repo_root`.
+    strategy_n : int
+        Strategy number (1, 2, or 3).
+
+    Returns
+    -------
+    str
+    """
+    return str(ma_base_dir(repo_root) / ma_strategy_dirname(strategy_n) / "cell_type_cooccurrence.csv.gz")

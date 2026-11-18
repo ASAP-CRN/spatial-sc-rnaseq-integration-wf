@@ -476,7 +476,7 @@ def load_all_vs_all(
 def build_all_vs_all_figure(
     all_vs_all, row_counts, col_counts, sort_by, title,
     wide_factor=1.0, height_factor=1.0,
-    y_annotation_offset=-0.30, x_annotation_offset=-0.30,
+    axis_label_margin_px=24,
 ):
     """
     Heatmap-with-marginals figure comparing our pooled categories vs. Ma's.
@@ -498,12 +498,10 @@ def build_all_vs_all_figure(
         of these figures are shown side by side.
     height_factor : float
         Multiplier on the computed figure height.
-    y_annotation_offset : float
-        Paper-coordinate y position for the "Ma (2025) — RCTD" x-axis label
-        annotation; more negative pushes it further below the plot.
-    x_annotation_offset : float
-        Paper-coordinate x position for the "ASAP — Cell2Location" y-axis
-        label annotation; more negative pushes it further left of the plot.
+    axis_label_margin_px : int
+        Pixel gap between the "ASAP — Cell2Location" / "Ma (2025) — RCTD"
+        axis-title annotations and the outer edge of the figure's fixed
+        margin.).
 
     Returns
     -------
@@ -518,6 +516,7 @@ def build_all_vs_all_figure(
     height = max(500, len(data) * 35 + 220) * height_factor
     width = max(800, len(data.columns) * 40 + 280) * wide_factor
 
+    margin_l, margin_b = 150, 140
     fig = crosstab_heatmap_figure(
         data, row_order, col_order, row_marg, col_marg, height, width,
         heatmap_kwargs=dict(
@@ -528,15 +527,17 @@ def build_all_vs_all_figure(
         marginal_frac=0.15,
         row_axis_reversed=True,  # preserves this plot's existing top=highest-count row ordering
         title=title,
-        margin=dict(l=150, b=140, t=60, r=60),
+        margin=dict(l=margin_l, b=margin_b, t=60, r=60),
     )
     fig.add_annotation(
         text="<b>Ma (2025) — RCTD</b>", xref="paper", yref="paper",
-        x=0.5, y=y_annotation_offset, xanchor="center", yanchor="top", showarrow=False,
+        x=0.5, y=0, xanchor="center", yanchor="top", showarrow=False,
+        yshift=-(margin_b - axis_label_margin_px),
     )
     fig.add_annotation(
         text="<b>ASAP — Cell2Location</b>", xref="paper", yref="paper",
-        x=x_annotation_offset, y=0.5, xanchor="center", yanchor="middle", textangle=-90, showarrow=False,
+        x=0, y=0.5, xanchor="center", yanchor="middle", textangle=-90, showarrow=False,
+        xshift=-(margin_l - axis_label_margin_px),
     )
     return fig
 
